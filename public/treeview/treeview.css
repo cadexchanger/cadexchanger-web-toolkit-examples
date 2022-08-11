@@ -1,0 +1,162 @@
+/*****************************************************************************
+ * Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+ * Copyright (C) 2014-2022, CADEX. All rights reserved.
+ * This file is part of the CAD Exchanger software.
+ * You may use this file under the terms of the BSD license as follows:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * * Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
+ #file-scenegraph-container {
+  /* min-width: 300px;
+  max-width: 30%; */
+  width: 350px;
+  height: 100%;
+  overflow: auto;
+  border-right: 1px solid #EBEBEB;
+}
+#file-viewer {
+  position: relative;
+}
+
+.jstree-container-ul {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+
+.jstree-default .jstree-anchor > .jstree-icon.jstree-sge-state {
+  background-position: -164px -4px;
+}
+
+.jstree-default .jstree-anchor > .jstree-icon.jstree-sge-state:hover {
+  background-position: -164px -36px;
+}
+
+.jstree-default .jstree-anchor.jstree-displayed > .jstree-icon.jstree-sge-state {
+  background-position: -228px -4px;
+}
+
+.jstree-default .jstree-anchor.jstree-displayed > .jstree-icon.jstree-sge-state:hover {
+  background-position: -228px -36px;
+}
+
+.jstree-default .jstree-anchor.jstree-partly-displayed > .jstree-icon.jstree-sge-state {
+  background-position: -196px -4px;
+}
+
+.jstree-default .jstree-anchor.jstree-partly-displayed > .jstree-icon.jstree-sge-state:hover {
+  background-position: -196px -36px
+}
+
+.jstree-default .jstree-anchor.jstree-sge-loading > .jstree-icon.jstree-sge-state {
+  background-image: none;
+  position: relative;
+}
+
+.jstree-default .jstree-anchor.jstree-sge-loading > .jstree-icon.jstree-sge-state::before {
+  display: inline-block;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: 2px solid #f3f3f3; /* Light grey */
+  border-top: 2px solid #224d69; /* Blue */
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  content: "";
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.icon-file {
+  background-image: url("/assets/images/file.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-assembly {
+  background-image: url("/assets/images/assembly.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-instance {
+  background-image: url("/assets/images/instance.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-part {
+  background-image: url("/assets/images/part.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-pmi {
+  background-image: url("/assets/images/pmi.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-pmi-element {
+  background-image: url("/assets/images/pmi-element.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.jstree-anchor > .jstree-icon.jstree-sge-state {
+  background-image: url("/assets/images/jstree-not-displayed.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+.jstree-anchor:hover > .jstree-icon.jstree-sge-state {
+  background-image: url("/assets/images/jstree-not-displayed-hover.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.jstree-anchor.jstree-displayed > .jstree-icon.jstree-sge-state {
+  background-image: url("/assets/images/jstree-displayed.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.jstree-anchor.jstree-partly-displayed > .jstree-icon.jstree-sge-state {
+  background-image: url("/assets/images/jstree-partly-displayed.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+li.jstree-open > i.jstree-icon.jstree-ocl {
+  background-image: url("/assets/images/expand.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+li.jstree-closed > i.jstree-icon.jstree-ocl {
+  background-image: url("/assets/images/roll-up.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+

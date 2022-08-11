@@ -1,0 +1,33 @@
+{
+  "name": "cadexchanger-web-toolkit-examples",
+  "version": "1.0.0",
+  "description": "CAD Exchanger Web Toolkit examples in JavaScript",
+  "scripts": {
+    "start": "node live-server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cadexchanger/cadexchanger-web-toolkit-examples.git"
+  },
+  "keywords": [
+    "cadexchanger",
+    "web",
+    "toolkit",
+    "wtk",
+    "javascript",
+    "cad",
+    "examples"
+  ],
+  "author": "CADEX Ltd.",
+  "license": "BSD-2-Clause",
+  "bugs": {
+    "url": "https://github.com/cadexchanger/cadexchanger-web-toolkit-examples/issues"
+  },
+  "homepage": "https://github.com/cadexchanger/cadexchanger-web-toolkit-examples#readme",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  },
+  "dependencies": {
+    "@cadexchanger/web-toolkit": "^1.2.5"
+  }
+}

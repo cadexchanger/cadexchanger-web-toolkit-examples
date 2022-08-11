@@ -1,0 +1,415 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Visualize Graphical PMI</title>
+
+  <meta name="description" content="Visualize Graphical PMI.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="pmiviewer.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree/dist/themes/default/style.min.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-scenegraph-container"></div>
+    <div id="file-viewer"></div>
+    <div id="file-pmi-container">
+      <div id="file-pmi-saved-views">
+        <span>Select a view:</span>
+        <select id="file-pmi-saved-views-select"></select>
+      </div>
+      <div id="file-pmi-elements"></div>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- Helper libraries -->
+  <!-- Required by jstree (https://jquery.com/) -->
+  <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
+  <!-- jstree library is used to simplify create tree with html (https://www.jstree.com) -->
+  <script src="https://cdn.jsdelivr.net/npm/jstree/dist/jstree.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, $, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Global model
+    const aModel = new cadex.ModelData_Model();
+    // Global scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    // Set global display mode to shaded with boundaries
+    aScene.globalDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+    // Set global selection mode to shape
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+    const aFileViewerElement = document.getElementById('file-viewer');
+    // Global viewport of visualization
+    // Initializing with empty config and element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({}, aFileViewerElement);
+    // Attach viewport to scene to render content of
+    aViewPort.attachToScene(aScene);
+
+    const aPMIFactory = new cadex.ModelPrs_PMIFactory();
+
+    const aJSTreeConfig = {
+      core: {
+        multiple: false,
+        check_callback: true,
+        themes: {
+          name: null, //'default',
+          dots: true,
+        }
+      },
+      types: {
+        file: {
+          icon: 'icon-file'
+        },
+        assembly: {
+          icon: 'icon-assembly'
+        },
+        instance: {
+          icon: 'icon-instance'
+        },
+        part: {
+          icon: 'icon-part'
+        },
+        pmi: {
+          icon: 'icon-pmi'
+        },
+        'pmi-element': {
+          icon: 'icon-pmi-element'
+        }
+      },
+      plugins: ['wholerow', 'types']
+    };
+
+    // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
+    $('#file-scenegraph-container').jstree(aJSTreeConfig)
+      .on('select_node.jstree', async (theEvent, theData) => {
+        const aPMITree = $('#file-pmi-elements').jstree(true);
+        const aTreeRoot = aPMITree.get_node('#');
+        // Clean up current PMI graphical elements tree
+        aTreeRoot.children.forEach(theRoot => aPMITree.delete_node(theRoot));
+
+        const aNodeData = theData.node.data;
+        /** @type {cadex.ModelData_SceneGraphElement} */
+        const aSGE = aNodeData && aNodeData.ancestors && aNodeData.ancestors[aNodeData.ancestors.length - 1];
+        if (aSGE && aSGE.pmi) {
+
+          if (!aNodeData.pmiView3dObj) {
+            aNodeData.pmiView3dObj = await aPMIFactory.create(aSGE.pmi, aNodeData.ancestors);
+          }
+          const aView3Objs = aNodeData.pmiView3dObj;
+
+          const aSGNode = aPMITree.create_node(aTreeRoot, {
+            text: aSGE.name,
+            type: theData.node.type,
+            data: { sge: aSGE }
+          });
+
+          // Combine PMI graphical elements by type
+          const aPMIDataItems = await aSGE.pmi.pmiDataItems();
+          const aTypedElements = {};
+          aPMIDataItems.forEach((thePMIData, theIndex) => {
+            aTypedElements[thePMIData.type] = aTypedElements[thePMIData.type] || [];
+            aTypedElements[thePMIData.type].push({
+              pmiData: thePMIData,
+              // the view3d objects are created in order PMI elements storing
+              view3dObj: aView3Objs[theIndex]
+            });
+          });
+
+          // Feed PMI elements tree
+          for (let aPMIType in aTypedElements) {
+            const anElementNode = aPMITree.create_node(aSGNode, {
+              text: Object.keys(cadex.ModelData_PMIType).find(key => `${cadex.ModelData_PMIType[key]}` === aPMIType),
+              type: 'pmi',
+            });
+            aTypedElements[aPMIType].forEach(theElement => {
+              aPMITree.create_node(anElementNode, {
+                text: theElement.pmiData.name,
+                type: 'pmi-element',
+                data: theElement
+              });
+            });
+          }
+
+          // Feed PMI Saved Views dropdown
+          /** @type {HTMLSelectElement} */
+          const aDropDown = document.getElementById('file-pmi-saved-views-select');
+          while (aDropDown.options.length > 0) {
+            aDropDown.remove(0);
+          }
+          const anAllOption = document.createElement('option');
+          anAllOption.text = 'All (auto created)';
+          aDropDown.add(anAllOption);
+
+          const aViews = await aSGE.pmi.views();
+          aViews.forEach(theView => {
+            const anOption = document.createElement('option');
+            anOption.text = theView.name || 'Unnamed view';
+            aDropDown.add(anOption);
+          });
+          aDropDown.onchange = () => {
+            if (aDropDown.selectedIndex === 0) {
+              aScene.display(aView3Objs, cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
+            } else if (aDropDown.selectedIndex > 0) {
+              aScene.hide(aView3Objs);
+              const aSelectedView = aViews[aDropDown.selectedIndex - 1];
+              aSelectedView.elements.forEach(theElement => {
+                const anElementIndex = aPMIDataItems.findIndex(theItem => theElement === theItem.graphicalElement);
+                if (anElementIndex !== -1) {
+                  aScene.display(aView3Objs[anElementIndex], cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
+                }
+              });
+              const aTrsf = aNodeData.ancestors.reduce((theTrsf, theAncestor) => {
+                if (theAncestor instanceof cadex.ModelData_Instance) {
+                  theTrsf.multiply(theAncestor.transformation);
+                }
+                return theTrsf;
+              }, new cadex.ModelData_Transformation);
+              aViewPort.changeCamera({
+                position: aSelectedView.camera.location.transformed(aTrsf),
+                target: aSelectedView.camera.targetPoint.transformed(aTrsf),
+                up: aSelectedView.camera.upDirection.transformed(aTrsf)
+              });
+            }
+          };
+          aDropDown.selectedIndex = -1;
+          aDropDown.onchange();
+        } else {
+          aPMITree.create_node(aTreeRoot, {
+            text: 'There is no PMI table available',
+            type: 'pmi'
+          });
+          // Clean up dropdown
+          const aDropDown = document.getElementById('file-pmi-saved-views-select');
+          while (aDropDown.options.length > 0) {
+            aDropDown.remove(0);
+          }
+        }
+        aPMITree.open_all(null, 0);
+      })
+      .on('deselect_all.jstree', (theEvent, theData) => {
+        const aTreeNodes = theData.node;
+        const aPMITree = $('#file-scenegraph-container').jstree(true);
+        aTreeNodes.forEach(theNodeId => {
+          const aNode = aPMITree.get_node(theNodeId);
+          if (aNode.data && aNode.data.pmiView3dObj) {
+            aScene.hide(aNode.data.pmiView3dObj);
+          }
+        });
+      });
+
+    // Get jsTree object for scenegraph
+    const aJsTree = $('#file-scenegraph-container').jstree(true);
+
+    // Initialize jsTree library used for visualizing PMI structure (see https://www.jstree.com/)
+    $('#file-pmi-elements').jstree(aJSTreeConfig)
+      .on('select_node.jstree', async (theEvent, theData) => {
+        // Select PMI entity by selection
+        const aNodeData = theData.node.data;
+        if (aNodeData && aNodeData.view3dObj) {
+          aScene.select(aNodeData.view3dObj, /*break selection*/ true);
+        }
+      });
+
+    $('#file-pmi-elements').jstree(true).create_node(null, { text: 'Select tree node to see PMI data', type: 'pmi' });
+
+    initModelSelector('nist_ftc_08_asme1_ap242.stp', loadAndDisplayModel);
+
+    async function loadAndDisplayModel(theModelPath, theModelName) {
+
+      aScene.removeAll(true);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        // Create root file item
+        const aFileNode = aJsTree.create_node(null, {
+          text: theModelName,
+          type: 'file',
+          data: {}
+        });
+
+        // Feed tree with model structure
+        const aVisitor = new SceneGraphToJsTreeConverter(aFileNode);
+        await aModel.accept(aVisitor);
+        aJsTree.open_all(null, 0);
+
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new ModelDisplayer(),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any),
+          async: false
+        });
+        aViewPort.fitAll();
+
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+    // Use a visitor to feed jsTree
+    class SceneGraphToJsTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
+
+      constructor(theRootNode) {
+        super();
+        this.jsTreeNodes = [theRootNode];
+        this.ancestors = [];
+      }
+      currentNode() {
+        return this.jsTreeNodes[this.jsTreeNodes.length - 1];
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Part} thePart
+       */
+      visitPart(thePart) {
+        const anAncestors = this.ancestors.slice();
+        anAncestors.push(thePart);
+        const aTreeItem = {
+          text: thePart.name || 'Unnamed Part',
+          type: 'part',
+          data: {
+            ancestors: anAncestors
+          }
+        };
+        aJsTree.create_node(this.currentNode(), aTreeItem);
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceEnter(theInstance) {
+        this.ancestors.push(theInstance);
+        const aTreeItem = {
+          text: theInstance.name || 'Unnamed Instance',
+          type: 'instance',
+          data: {
+            ancestors: this.ancestors.slice()
+          }
+        };
+        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        this.jsTreeNodes.push(aNode);
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceLeave(/*theInstance*/) {
+        this.jsTreeNodes.pop();
+        this.ancestors.pop();
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      visitAssemblyEnter(theAssembly) {
+        this.ancestors.push(theAssembly);
+        const aTreeItem = {
+          text: theAssembly.name || 'Unnamed Assembly',
+          type: 'assembly',
+          data: {
+            ancestors: this.ancestors.slice()
+          }
+        };
+        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        this.jsTreeNodes.push(aNode);
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      visitAssemblyLeave(/*theAssembly*/) {
+        this.jsTreeNodes.pop();
+        this.ancestors.pop();
+      }
+
+    }
+
+    // Callback for displaying created view3d objects on the scene.
+    class ModelDisplayer extends cadex.ModelPrs_Displayer {
+      /**
+       * @param {Array<ModelPrs_View3dObject>} theView3dObjects List of objects to display
+       * @param {ModelData_Representation} theRepresentation The presentation which view3d object created for.
+       * @param {Array<ModelData_SceneGraphElement>} theAncestors The valid path in scenegraph to the element which displayed.
+       * @param {number} theDisplayMode Mode to display with.
+       */
+      display(theView3dObjects, theRepresentation, theAncestors, theDisplayMode) {
+        aScene.display(theView3dObjects, theDisplayMode);
+      }
+    }
+
+  </script>
+
+</body>
+
+</html>

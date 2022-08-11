@@ -1,0 +1,82 @@
+html {
+  font-family: "Muli Light", Muli, -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.content-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100%;
+  height: auto;
+}
+
+.examples-container {
+  display: flex;
+  justify-content: center;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  width: 72rem;
+  max-width: 90%;
+}
+
+.pagetitle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagetitle .logo {
+  margin: 1rem;
+}
+
+.pagetitle h1 {
+  font-weight: 400;
+  color: #216CAA;
+  font-size: 2rem;
+  line-height: 3rem;
+}
+
+.card, .dummy-card {
+  width: 14rem;
+  padding: 1rem;
+  margin: 1rem;
+}
+
+.card {
+  height: 14rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+  background-color: #fff;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.card-image {
+  width: 12rem;
+  margin: auto;
+  opacity: 0.9;
+}
+
+.card:hover {
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.card-title {
+  color: #464a4c;
+  font-size: 1.1rem;
+  margin: 0;
+  margin-top: 0.5rem;
+}

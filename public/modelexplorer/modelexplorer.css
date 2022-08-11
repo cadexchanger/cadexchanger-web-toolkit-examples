@@ -1,0 +1,180 @@
+/*****************************************************************************
+ * Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+ * Copyright (C) 2014-2022, CADEX. All rights reserved.
+ * This file is part of the CAD Exchanger software.
+ * You may use this file under the terms of the BSD license as follows:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * * Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
+#model-explorer-sidebar {
+  min-width: 300px;
+  max-width: 30%;
+  height: 100%;
+  border-right: 1px solid #aaaaaa;
+}
+
+#file-viewer {
+  height: 40%;
+}
+
+#file-scenegraph-container {
+  height: 60%;
+  overflow: auto;
+  border-top: 1px solid #aaaaaa;
+}
+
+#model-selector {
+  width: calc(100% - 2rem);
+  position: static;
+  margin: 1rem;
+}
+
+.jstree-container-ul {
+  padding: 0.5rem;
+}
+
+#element-info-container {
+  display: flex;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+
+#info-card {
+  width: 100%;
+  padding: 1rem;
+
+  position: relative;
+}
+
+#info-card > span {
+  display: block;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 23px;
+}
+
+#info-card > .info-row {
+  margin-bottom: 1rem;
+}
+
+#info-card::after {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  line-height: 1;
+  display: inline-block;
+}
+
+.info-row {
+  display: flex;
+  line-height: 2;
+  border: 1px solid #cccccc;
+}
+
+.info-name {
+  min-width: 120px;
+  width: 120px;
+  overflow-wrap: break-word;
+}
+
+.info-value {
+  flex: 1 1 auto;
+  border-left: 1px solid #cccccc;
+}
+
+.info-value>span {
+  vertical-align: middle;
+}
+
+.info-name,
+.info-value>span,
+.info-value>i {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.info-value>i {
+  line-height: 1.75;
+}
+
+.info-value>.info-row {
+  border: none;
+}
+
+.info-value>.info-row:not(:last-child) {
+  border-bottom: 1px solid #cccccc;
+}
+
+.info-value>.info-row:first-child {
+  border-top: none;
+}
+
+.info-value>i+.info-row {
+  border-top: 1px solid #cccccc;
+}
+
+.colored-square {
+  display: inline-block;
+  width: 2rem;
+  height: 1rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.icon-file {
+  background-image: url("/assets/images/file.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-assembly {
+  background-image: url("/assets/images/assembly.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-instance {
+  background-image: url("/assets/images/instance.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+.icon-part {
+  background-image: url("/assets/images/part.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+li.jstree-open > i.jstree-icon.jstree-ocl {
+  background-image: url("/assets/images/expand.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}
+
+li.jstree-closed > i.jstree-icon.jstree-ocl {
+  background-image: url("/assets/images/roll-up.svg") !important;
+  background-position: center !important;
+  background-size: unset !important;
+}

@@ -1,0 +1,233 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - VVisualize CAD models in React Application</title>
+
+  <meta name="description" content="Visualize CAD models in React Application.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="reactjsviewer.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="root"></div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- 3rd party libraries -->
+  <!-- React.js -->
+  <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global React, ReactDOM, cadex, getModelList, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    const e = React.createElement;
+
+    class CadExReactViewer extends React.Component {
+
+      constructor(props) {
+        super(props);
+        if (this.props.model && this.props.model.path) {
+          this.loadAndDisplayModel(this.props.model.path);
+        }
+      }
+
+      componentDidMount() {
+        // Create model
+        this.model = new cadex.ModelData_Model();
+        // Create scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
+        // Setup global selection mode to allow shape selection
+        this.scene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+        // Create viewport with default config and div element attach to.
+        this.viewPort = new cadex.ModelPrs_ViewPort({}, this.container);
+        // Attach viewport to scene to render content of it
+        this.viewPort.attachToScene(this.scene);
+      }
+
+      componentDidUpdate(prevProps) {
+        if (prevProps.model !== this.props.model && this.props.model && this.props.model.path) {
+          this.loadAndDisplayModel(this.props.model.path);
+        }
+      }
+
+      componentWillUnmount() {
+        this.viewPort.detachFromScene(this.scene);
+        this.scene.removeAll(true);
+        this.scene = null;
+        this.model = null;
+        this.viewPort = null;
+      }
+
+      async loadAndDisplayModel(theModelPath) {
+        // Clean up scene to display new model
+        this.scene.removeAll(true);
+
+        try {
+          // Model uses multiple external data, so requires provider for it.
+          const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
+          let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          if (aLoadResult.hasBRepRep) {
+            aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+            aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+          }
+          this.scene.globalDisplayMode = aDisplayMode;
+
+          // Convert added model roots into visualization objects and display it
+          await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+            displayer: new cadex.ModelPrs_SceneDisplayer(this.scene),
+            repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
+          });
+
+          // Move camera to position when the whole model is in sight
+          this.viewPort.fitAll();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+        }
+
+      }
+
+      render() {
+        // JSX
+        // return (<div id="file-viewer" ref={div => this.container = div}></div>);
+        return e('div', { ref: div => this.container = div, id: 'file-viewer' });
+      }
+    }
+
+    class CadExReactViewerApp extends React.Component {
+
+      constructor(props) {
+        super(props);
+        this.state = {
+          models: [],
+          currentModel: null
+        };
+        this.onModelSelectorChanged = this.onModelSelectorChanged.bind(this);
+
+        this.feedModelList();
+      }
+
+      async feedModelList() {
+        const aModelList = await getModelList();
+        this.setState({
+          models: aModelList,
+          currentModel: aModelList.find(m => m.name === 'Rotary Tiller.sldprt')
+        });
+      }
+
+      onModelSelectorChanged(theEvent) {
+        this.setState({
+          currentModel: this.state.models[theEvent.target.selectedIndex]
+        });
+      }
+
+      render() {
+        const options = this.state.models.map(model => {
+          // JSX
+          // return <option key="{theModel.name}">{theModel.name}</option>;
+          return React.createElement('option', { key: model.name }, model.name);
+        });
+
+        const aCurrentModelName = this.state.currentModel ? this.state.currentModel.name : '';
+
+        // JSX
+        // return (
+        //   <div className="examples-container">
+        //     <CadExReactViewer model={this.state.currentModel}/>
+        //     <div id="model-selector">
+        //       <div>Select model:</div>
+        //       <select value={aCurrentModelName} onChange={this.onModelSelectorChanged}>
+        //         {options}
+        //       </select>
+        //     </div>
+        //   </div>
+        // );
+
+        return React.createElement('div', { id: 'example-container' },
+          React.createElement(CadExReactViewer, { model: this.state.currentModel }),
+          React.createElement('div', { id: 'model-selector' },
+            React.createElement('div', null, 'Select model:'),
+            React.createElement('select', {
+              value: aCurrentModelName,
+              onChange: this.onModelSelectorChanged
+            }, options)
+          )
+        );
+      }
+    }
+
+    const domContainer = document.querySelector('#root');
+    ReactDOM.render(e(CadExReactViewerApp), domContainer);
+
+  </script>
+
+</body>
+
+</html>

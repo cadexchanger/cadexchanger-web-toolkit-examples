@@ -1,0 +1,439 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Sectioning</title>
+
+  <meta name="description" content="Sectioning.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="sectioning.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="side-panel">
+
+      <div id="model-selector">
+        <div>Select model:</div>
+        <select></select>
+      </div>
+
+      <div class="general-btns">
+        <button id="btn-add-plane">
+          Add plane
+        </button>
+        <button id="btn-clear">
+          Clear
+        </button>
+      </div>
+      <div class="clip-planes">
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Create model
+    let aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    // Setup global selection mode to allow shape selection
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+
+    initModelSelector('FZK Haus.ifc', loadAndDisplayModel);
+
+    async function loadAndDisplayModel(theModelPath) {
+
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
+        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+        if (aLoadResult.hasBRepRep) {
+          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+        }
+        aScene.globalDisplayMode = aDisplayMode;
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
+        });
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+    /* ============================================================================================ */
+
+    aScene.addEventListener('boundingBoxChanged', () => {
+      const aBoundingBox = aScene.boundingBox;
+      aViewPort.clipPlanesManager.planes.forEach((thePlane) => {
+        thePlane.bbox = aBoundingBox;
+      });
+    });
+
+    /**
+     * @enum {string}
+     */
+    let CliPlaneAxis = {
+      x: 'x',
+      y: 'y',
+      z: 'z',
+    };
+    let theClipPlaneIndex = 0;
+
+    class ClipPlane extends cadex.ModelPrs_ClipPlane {
+      /**
+       * @param {cadex.ModelData_Box} theBBox
+       * @param {CliPlaneAxis} theAxis
+       */
+      constructor(theBBox, theAxis) {
+        // create default plane, the position and direction will be updated later
+        const aPlane = cadex.ModelData_Plane.fromPointAndNormal(new cadex.ModelData_Point(), new cadex.ModelData_Direction(-1, 0, 0));
+        super(aPlane);
+
+        this.planeId = ++theClipPlaneIndex;
+        this.min = 0;
+        this.max = 100;
+        // in percents, from 0 to 100
+        this.myValue = 50;
+        this.myBBox = new cadex.ModelData_Box();
+        this.myBBox.copy(theBBox);
+        this.myAxis = theAxis;
+        this.myReverse = false;
+
+        this.updateRange();
+
+        this.planePanel = this.createPlanePanel();
+
+        this.addEventListener('planeChanged', (theEvent) => {
+          if (theEvent.byViewPortInput) {
+            this.onPositionChangedByScene();
+          }
+        });
+      }
+
+      get value() {
+        return this.myValue;
+      }
+
+      set value(theValue) {
+        if (theValue < 0) {
+          theValue = 0;
+        }
+        if (theValue > 100) {
+          theValue = 100;
+        }
+        this.myValue = Math.round(theValue);
+
+        const aHtmlValue = `${this.myValue}`;
+        const aRangeInput = this.planePanel.querySelector(`#position-range-${this.planeId}`);
+        aRangeInput.value = aHtmlValue;
+
+        const aPercentInput = this.planePanel.querySelector(`#position-percent-${this.planeId}`);
+        aPercentInput.value = aHtmlValue;
+
+        this.updatePlane();
+      }
+
+      get bbox() {
+        return this.myBBox;
+      }
+
+      set bbox(theBBox) {
+        this.myBBox.copy(theBBox);
+        this.updateRange();
+      }
+
+      get axis() {
+        return this.myAxis;
+      }
+      set axis(theAxis) {
+        this.myAxis = theAxis;
+        this.updateRange();
+      }
+
+      get reverse() {
+        return this.myReverse;
+      }
+      set reverse(theReverse) {
+        this.myReverse = theReverse;
+        this.updatePlane();
+      }
+
+      updateRange() {
+        this.min = this.myBBox.minCorner[this.myAxis];
+        this.max = this.myBBox.maxCorner[this.myAxis];
+        // Add additional 1% gap to avoid rendering artefacts
+        const gap = (this.max - this.min) / 100;
+        this.min -= gap;
+        this.max += gap;
+        this.updatePlane();
+      }
+
+      updatePlane() {
+        const aPlane = this.plane;
+        aPlane.location.copy(this.myBBox.minCorner).add(this.myBBox.maxCorner).multiplyScalar(0.5);
+        const aPositionValue = Math.round(this.min + (this.max - this.min) * (this.value / 100));
+        switch (this.axis) {
+          case CliPlaneAxis.x:
+            aPlane.location.x = aPositionValue;
+            aPlane.direction.setCoord(this.reverse ? 1 : -1, 0, 0);
+            break;
+          case CliPlaneAxis.y:
+            aPlane.location.y = aPositionValue;
+            aPlane.direction.setCoord(0, this.reverse ? -1 : 1, 0);
+            break;
+          case CliPlaneAxis.z:
+            aPlane.location.z = aPositionValue;
+            aPlane.direction.setCoord(0, 0, this.reverse ? 1 : -1);
+            break;
+        }
+        this.plane = aPlane;
+      }
+
+      onPositionChangedByScene() {
+        this.value = (this.plane.location[this.axis] - this.min) * 100 / (this.max - this.min);
+      }
+
+      createPlanePanel() {
+        const aPlanePanel = document.createElement('div');
+        aPlanePanel.classList.add('plane-panel');
+        aPlanePanel.id = this.planeId;
+
+        const anAxesSection = document.createElement('div');
+        anAxesSection.classList.add('plane-panel__axes-section');
+        aPlanePanel.appendChild(anAxesSection);
+
+        const aPlaneTitle = document.createElement('span');
+        aPlaneTitle.classList.add('plane-panel__plane-title');
+        aPlaneTitle.innerText = 'Plane';
+        anAxesSection.appendChild(aPlaneTitle);
+
+        Object.keys(CliPlaneAxis).forEach((theAxis) => {
+          const anAxisSection = document.createElement('div');
+          anAxisSection.classList.add('plane-panel__axis-section');
+
+          const anAxisRadio = document.createElement('input');
+          anAxisRadio.id = `radio-${theAxis}-${this.planeId}`;
+          anAxisRadio.type = 'radio';
+          anAxisRadio.name = `radio-axes-${this.planeId}`;
+          anAxisRadio.value = theAxis;
+          anAxisRadio.checked = theAxis === this.axis;
+          anAxisRadio.onclick = () => {
+            this.axis = CliPlaneAxis[theAxis];
+          };
+
+          const anAxisLabel = document.createElement('label');
+          anAxisLabel.htmlFor = anAxisRadio.id;
+          anAxisLabel.innerText = theAxis.toUpperCase();
+
+          anAxisSection.appendChild(anAxisRadio);
+          anAxisSection.appendChild(anAxisLabel);
+
+          anAxesSection.appendChild(anAxisSection);
+        });
+
+        const aDivider = document.createElement('div');
+        aDivider.classList.add('plane-panel__divider');
+        aPlanePanel.appendChild(aDivider);
+
+        const aReverseCheckboxSection = document.createElement('div');
+        aReverseCheckboxSection.classList.add('plane-panel__reverse-checkbox-section');
+        aPlanePanel.appendChild(aReverseCheckboxSection);
+
+        const aReverseCheckbox = document.createElement('input');
+        aReverseCheckbox.classList.add('plane-panel__checkbox-reverse');
+        aReverseCheckbox.id = `checkbox-reverse-${this.planeId}`;
+        aReverseCheckbox.type = 'checkbox';
+        aReverseCheckbox.name = aReverseCheckbox.id;
+        aReverseCheckbox.checked = false;
+        aReverseCheckbox.onchange = (theEvent) => {
+          theEvent.preventDefault();
+          this.reverse = theEvent.target.checked;
+        };
+
+        const anReverseLabel = document.createElement('label');
+        anReverseLabel.htmlFor = aReverseCheckbox.id;
+        anReverseLabel.innerText = 'Reversed plane';
+
+        aReverseCheckboxSection.appendChild(anReverseLabel);
+        aReverseCheckboxSection.appendChild(aReverseCheckbox);
+
+        const aPositionRangeSection = document.createElement('div');
+        aPositionRangeSection.classList.add('plane-panel__position-range-section');
+        aPlanePanel.appendChild(aPositionRangeSection);
+
+        const aPlanePositionRange = document.createElement('input');
+        aPlanePositionRange.classList.add('plane-panel__position-range');
+        aPlanePositionRange.id = `position-range-${this.planeId}`;
+        aPlanePositionRange.type = 'range';
+        aPlanePositionRange.min = '0';
+        aPlanePositionRange.max = '100';
+        aPlanePositionRange.step = '1';
+        aPlanePositionRange.value = `${this.value}`;
+        aPlanePositionRange.oninput = (theEvent) => {
+          theEvent.preventDefault();
+          this.value = Number(theEvent.target.value);
+        };
+
+        const aPlanePositionPercent = document.createElement('input');
+        aPlanePositionPercent.classList.add('plane-panel__position-percent');
+        aPlanePositionPercent.id = `position-percent-${this.planeId}`;
+        aPlanePositionPercent.type = 'number';
+        aPlanePositionPercent.min = '0';
+        aPlanePositionPercent.max = '100';
+        aPlanePositionPercent.value = `${this.value}`;
+        aPlanePositionPercent.oninput = (theEvent) => {
+          theEvent.preventDefault();
+          this.value = Number(theEvent.target.value);
+        };
+
+        aPositionRangeSection.appendChild(aPlanePositionRange);
+        aPositionRangeSection.appendChild(aPlanePositionPercent);
+        aPositionRangeSection.append('%');
+
+        const anDeletePlaneBtn = document.createElement('img');
+        anDeletePlaneBtn.classList.add('plane-panel__delete-plane-btn');
+        anDeletePlaneBtn.src = '../assets/images/delete.svg';
+        anDeletePlaneBtn.alt = 'basket';
+        anDeletePlaneBtn.onclick = () => {
+          deletePlane(this);
+        };
+        aPlanePanel.appendChild(anDeletePlaneBtn);
+
+        return aPlanePanel;
+      }
+    }
+
+    function addPlane() {
+      if (aViewPort.clipPlanesManager.planes.size >= 3) {
+        return;
+      }
+
+      const anAlreadyUsedAxes = [];
+      aViewPort.clipPlanesManager.planes.forEach((thePlane) => {
+        anAlreadyUsedAxes.push(thePlane.axis);
+      });
+
+      const aMissingAxis = Object.values(CliPlaneAxis).filter(theAxis => !anAlreadyUsedAxes.includes(theAxis))[0];
+
+      const aClipPlane = new ClipPlane(aScene.boundingBox, aMissingAxis);
+      /* Enable reverse of plane: */
+      // aClipPlane.reverse = true;
+      /* Disable capping of plane: */
+      // aClipPlane.isCappingEnabled = false;
+      /* Hide controls (arrows) of plane: */
+      // aClipPlane.isShowControls = false;
+      /* Hide plane on the scene: */
+      // aClipPlane.isShowPlane = false;
+
+      aViewPort.clipPlanesManager.addGlobalClipPlane(aClipPlane);
+
+      document.querySelector('.clip-planes').appendChild(aClipPlane.planePanel);
+    }
+
+    /**
+     * @param {ClipPlane} thePlane
+     */
+    function deletePlane(thePlane) {
+      aViewPort.clipPlanesManager.removeGlobalClipPlane(thePlane);
+      thePlane.planePanel.remove();
+    }
+
+    function removeAllPlanes() {
+      aViewPort.clipPlanesManager.clear(); /* Remove all planes from clippingPlanesManager. */
+      document.querySelector('.clip-planes').innerHTML = ''; /* Remove all planes from layout. */
+    }
+
+    document.querySelector('#btn-add-plane').onclick = addPlane;
+    document.querySelector('#btn-clear').onclick = removeAllPlanes;
+
+  </script>
+
+</body>
+
+</html>

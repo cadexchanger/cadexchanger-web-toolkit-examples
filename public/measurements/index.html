@@ -1,0 +1,365 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Measurements</title>
+
+  <meta name="description" content="Measurements.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="measurements.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="side-panel">
+
+      <div id="model-selector">
+        <div>Select model:</div>
+        <select></select>
+      </div>
+
+      <div id="measurements-mode-selector">
+        <div>Measurement mode:</div>
+        <select>
+          <option value="Shape" selected>Two-point distance</option>
+          <option value="Vertex">Three-point angle</option>
+        </select>
+      </div>
+      <div id="distance-units-selector">
+        <div>Units:</div>
+        <select>
+          <option value="Base_LU_Millimeters" selected>Millimeters</option>
+          <option value="Base_LU_Centimeters">Centimeters</option>
+          <option value="Base_LU_Meters">Meters</option>
+          <option value="Base_LU_Inches">Inches</option>
+          <option value="Base_LU_Feets">Feets</option>
+          <option value="Base_LU_Yards">Yards</option>
+          <option value="Base_LU_Micrometers">Micrometers</option>
+          <option value="Base_LU_Decimeters">Decimeters</option>
+          <option value="Base_LU_Kilometers">Kilometers</option>
+          <option value="Base_LU_Mils">Mils</option>
+          <option value="Base_LU_Miles">Miles</option>
+        </select>
+      </div>
+      <div id="angle-units-selector" style="display: none;">
+        <div>Units:</div>
+        <select>
+          <option value="Base_AU_Radians" selected>Radians</option>
+          <option value="Base_AU_Degrees">Degrees</option>
+        </select>
+      </div>
+
+    </div>
+
+    <div id="help">
+      <div>Use <span>Ctrl + <img src="/assets/images/mouse-left.png"></span> to select multiple items</div>
+      <div>Use <span style="text-align: left;">Del</span> to remove selected measurements</div>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Create model
+    let aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Vertex;
+    aScene.globalDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+
+    // Subscribe to selection event
+    aScene.addEventListener('selectionChanged', onSelectionChanged);
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+    // Enable hovering for vertex highlight before selection
+    aViewPort.hoverEnabled = true;
+
+    aViewPort.domElement.addEventListener('keydown', (theEvent) => {
+      if (theEvent.code === 'Delete') {
+        removeSelectedMeasurements();
+      }
+    });
+
+    const aMeasurementFactory = new cadex.ModelPrs_MeasurementFactory();
+
+    initModelSelector('nist_ftc_08_asme1_ap242.stp', loadAndDisplayModel);
+
+    initMeasurementsModeSelector();
+
+    let aSceneBBox = aScene.boundingBox.clone();
+    let aFontSize = 10;
+
+    async function loadAndDisplayModel(theModelPath) {
+
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        const aPreferredRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(aPreferredRepMask),
+          interpretPolyVertexesAsBRepVertexes: true
+        });
+
+        aSceneBBox = aScene.boundingBox.copy(aScene.boundingBox);
+        const aSceneBBoxSizeLength = Math.sqrt(aSceneBBox.xRange() * aSceneBBox.xRange() + aSceneBBox.yRange() * aSceneBBox.yRange() + aSceneBBox.zRange() * aSceneBBox.zRange());
+        aFontSize = aSceneBBoxSizeLength / 50;
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+    /**
+     * @type {Array<!cadex.ModelPrs_View3dDimensionObject>}
+     */
+    const aMeasurements = [];
+    /**
+     * @type {Array<!cadex.ModelPrs_View3dDimensionObject>}
+     */
+    const aSelectedMeasurements = [];
+    /**
+     * @type {Array<!cadex.ModelData_Vertex>}
+     */
+    let aSelectedVertexes = [];
+
+    /**
+     * @param {cadex.ModelPrs_SelectionChangedEvent} theEvent
+     */
+    function onSelectionChanged(theEvent) {
+      if (theEvent.removed.length > 0) {
+        theEvent.removed.forEach(theRemoved => {
+          if (!theRemoved.shapes) {
+            const anIndex = aSelectedMeasurements.indexOf(theRemoved.object);
+            aSelectedMeasurements.splice(anIndex);
+            return;
+          }
+          const anObjectTransformation = theRemoved.object.transformation;
+          theRemoved.shapes.forEach(s => {
+            if (s instanceof cadex.ModelData_Vertex) {
+              const aVertexWorldPosition = s.point.transformed(anObjectTransformation);
+              const anIndex = aSelectedVertexes.findIndex(v => v.point.isEqual(aVertexWorldPosition, 1e-5));
+              if (anIndex !== -1) {
+                aSelectedVertexes.splice(anIndex, 1);
+              }
+            }
+          });
+        });
+      }
+      if (theEvent.added.length > 0) {
+        theEvent.added.forEach(theAdded => {
+          if (!theAdded.shapes) {
+            aSelectedMeasurements.push(theAdded.object);
+            return;
+          }
+          const anObjectTransformation = theAdded.object.transformation;
+          theAdded.shapes.forEach(s => {
+            if (s instanceof cadex.ModelData_Vertex) {
+              const aVertexWorldPosition = s.point.transformed(anObjectTransformation);
+              const anIndex = aSelectedVertexes.findIndex(v => v.point.isEqual(aVertexWorldPosition, 1e-5));
+              if (anIndex === -1) {
+                aSelectedVertexes.push(new cadex.ModelData_Vertex(aVertexWorldPosition));
+              }
+            }
+          });
+        });
+      }
+      const aMeasurementsModeSelector = document.querySelector('#measurements-mode-selector>select');
+      if (aMeasurementsModeSelector.selectedIndex === 0 && aSelectedVertexes.length === 2) {
+        // find the direction of annotation
+        // the main idea is to use direction aligned with vector from scene bbox center to measurement points.
+        const aBBoxCenter = aSceneBBox.getCenter();
+
+        const aPoint1 = aSelectedVertexes[0].point;
+        const aPoint2 = aSelectedVertexes[1].point;
+
+        // use center of measurement reference point for annotation direction
+        const anAnnotationDirTmp = aPoint1.clone().add(aPoint2).multiplyScalar(0.5).sub(aBBoxCenter);
+        const anAnnotationDirection = new cadex.ModelData_Direction(anAnnotationDirTmp.x, anAnnotationDirTmp.y, anAnnotationDirTmp.z);
+
+        const aP1P2DirectionTmp = aPoint1.clone().sub(aPoint2);
+        const aP1P2Direction = new cadex.ModelData_Direction(aP1P2DirectionTmp.x, aP1P2DirectionTmp.y, aP1P2DirectionTmp.z);
+
+        // next try to align annotation direction with X, Y, Z axes.
+        const aDirXAbs = Math.abs(anAnnotationDirection.x);
+        const aDirYAbs = Math.abs(anAnnotationDirection.y);
+        const aDirZAbs = Math.abs(anAnnotationDirection.z);
+        if (aDirZAbs && aDirZAbs >= aDirXAbs && aDirZAbs >= aDirYAbs) {
+          if (Math.abs(aP1P2Direction.x) < 1e-5 && Math.abs(aP1P2Direction.y) < 1e-5) {
+            // degenerate case, choose X axis
+            anAnnotationDirection.z = 0;
+          } else {
+            anAnnotationDirection.x = 0;
+          }
+          anAnnotationDirection.y = 0;
+        } else if (aDirXAbs > 1e-5 && aDirXAbs >= aDirYAbs && aDirXAbs >= aDirZAbs) {
+          if (Math.abs(aP1P2Direction.y) < 1e-5 && Math.abs(aP1P2Direction.z) < 1e-5) {
+            // degenerate case, choose Z axis
+            anAnnotationDirection.x = 0;
+          } else {
+            anAnnotationDirection.z = 0;
+          }
+          anAnnotationDirection.y = 0;
+        } else if (aDirYAbs > 1e-5) {
+          if (Math.abs(aP1P2Direction.x) < 1e-5 && Math.abs(aP1P2Direction.z) < 1e-5) {
+            // degenerate case, choose Z axis
+            anAnnotationDirection.y = 0;
+          } else {
+            anAnnotationDirection.z = 0;
+          }
+          anAnnotationDirection.x = 0;
+        } else {
+          // default is Z axis
+          anAnnotationDirection.set(0, 0, 1);
+        }
+
+        // orthogonalize annotation with dimension direction
+        const anOrthogonalizedAnnotationDirection = aP1P2Direction.crossed(anAnnotationDirection).cross(aP1P2Direction);
+
+        const dot = (v1, v2) => {
+          return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        };
+
+        // annotation text is placed out of model
+        // so find the distance between points to BBox boundaries in chosen direction
+        const tmp = new cadex.ModelData_Point();
+        const aBBoxMinCorner = aSceneBBox.minCorner;
+        const aBBoxMaxCorner = aSceneBBox.maxCorner;
+        let aMeasurementElevation = Math.max(
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMinCorner.y, aBBoxMinCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMinCorner.y, aBBoxMaxCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMaxCorner.y, aBBoxMinCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMaxCorner.y, aBBoxMaxCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMinCorner.y, aBBoxMinCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMinCorner.y, aBBoxMaxCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMaxCorner.y, aBBoxMinCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMaxCorner.y, aBBoxMaxCorner.z).sub(aPoint1), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMinCorner.y, aBBoxMinCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMinCorner.y, aBBoxMaxCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMaxCorner.y, aBBoxMinCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMinCorner.x, aBBoxMaxCorner.y, aBBoxMaxCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMinCorner.y, aBBoxMinCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMinCorner.y, aBBoxMaxCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMaxCorner.y, aBBoxMinCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+          dot(tmp.setCoord(aBBoxMaxCorner.x, aBBoxMaxCorner.y, aBBoxMaxCorner.z).sub(aPoint2), anOrthogonalizedAnnotationDirection),
+        );
+
+        // add addition offset for better UX
+        aMeasurementElevation += 3 * aFontSize;
+
+        const aMeasurement = aMeasurementFactory.createDistanceDimension(aSelectedVertexes[0], aSelectedVertexes[1], anOrthogonalizedAnnotationDirection, aMeasurementElevation, aFontSize);
+        console.log(`New distance measurement created:\nVertex 1: ${aPoint1}\nVertex 2 ${aPoint2}\nResult: ${aMeasurement.value}`);
+        aMeasurement.setLengthDisplayUnits(cadex.Base_LengthUnit[document.querySelector('#distance-units-selector>select').value]);
+        aScene.display(aMeasurement, cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
+        aMeasurements.push(aMeasurement);
+        aScene.deselectAll();
+      }
+      if (aMeasurementsModeSelector.selectedIndex === 1 && aSelectedVertexes.length === 3) {
+        const aMeasurement = aMeasurementFactory.createAngleDimension(aSelectedVertexes[0], aSelectedVertexes[1], aSelectedVertexes[2], aFontSize);
+        console.log(`New angle measurement created:\nVertex 1: ${aSelectedVertexes[0].point}\nVertex 2 ${aSelectedVertexes[1].point}\nVertex 3 ${aSelectedVertexes[2].point}\nResult: ${aMeasurement.value}`);
+        aMeasurement.setAngleDisplayUnits(cadex.Base_AngleUnit[document.querySelector('#angle-units-selector>select').value]);
+        aScene.display(aMeasurement, cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
+        aMeasurements.push(aMeasurement);
+        aScene.deselectAll();
+      }
+    }
+
+    function removeSelectedMeasurements() {
+      aScene.remove(aSelectedMeasurements);
+    }
+
+    function initMeasurementsModeSelector() {
+      /** @type {HTMLSelectElement} */
+      const aMeasurementsModeSelector = document.querySelector('#measurements-mode-selector>select');
+      if (aMeasurementsModeSelector) {
+        aMeasurementsModeSelector.onchange = () => {
+          document.getElementById('distance-units-selector').style.display = aMeasurementsModeSelector.selectedIndex === 0 ? '' : 'none';
+          document.getElementById('angle-units-selector').style.display = aMeasurementsModeSelector.selectedIndex === 0 ? 'none' : '';
+        };
+        aMeasurementsModeSelector.onchange();
+      }
+    }
+
+  </script>
+
+</body>
+
+</html>

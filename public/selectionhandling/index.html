@@ -1,0 +1,287 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Selection handling</title>
+
+  <meta name="description" content="Selection handling.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="selectionhandling.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="side-panel">
+
+      <div id="model-selector">
+        <div>Select model:</div>
+        <select></select>
+      </div>
+
+      <div id="selection-mode-selector">
+        <div>Selection Mode:</div>
+        <select>
+          <option value="None">None</option>
+          <option value="Shape">Object</option>
+          <option value="Solid">Solid</option>
+          <option value="Shell">Shell</option>
+          <option value="Face" selected>Face</option>
+          <option value="Wire">Wire</option>
+          <option value="Edge">Edge</option>
+          <option value="Vertex">Vertex</option>
+        </select>
+      </div>
+
+    </div>
+
+    <div id="help">
+      <div>Press <span><img src="/assets/images/mouse-left.png"></span> to select item</div>
+      <div>Press <span>Ctrl + <img src="/assets/images/mouse-left.png"></span> to select multiple items</div>
+      <div>Press <span><img src="/assets/images/mouse-right.png"></span> to show context menu</div>
+    </div>
+    <div id="context-menu"></div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Create model
+    let aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    aScene.globalDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+
+    // Subscribe to selection event
+    aScene.addEventListener('selectionChanged', onSelectionChanged);
+    // Hide mouse menu by any mouse press
+    window.addEventListener('mousedown', hideContextMenu);
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+    // Enable hovering for vertex selection
+    aViewPort.hoverEnabled = true;
+    // Subscribe to context menu event (right mouse click)
+    aViewPort.addEventListener('contextMenu', showContextMenu);
+
+    initModelSelector('RIDGID_planeur_TP13000.dwg', loadAndDisplayModel);
+
+    initSelectionModeSelector();
+
+    async function loadAndDisplayModel(theModelPath) {
+
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        const aSelectionModeSelector = document.querySelector('#selection-mode-selector>select');
+        for (let i = 0; i < aSelectionModeSelector.children.length; i++) {
+          const anElement = aSelectionModeSelector.children[i];
+          switch (anElement.value) {
+            case 'Solid':
+            case 'Shell':
+            case 'Face':
+            case 'Wire':
+            case 'Edge': {
+              anElement.disabled = !aLoadResult.hasBRepRep;
+              break;
+            }
+            default: break;
+          }
+        }
+        aSelectionModeSelector.value = aLoadResult.hasBRepRep ? 'Face' : 'Vertex';
+        aSelectionModeSelector.onchange();
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any),
+          interpretPolyVertexesAsBRepVertexes: true,
+        });
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+    class SceneDisplayer extends cadex.ModelPrs_Displayer {
+      /**
+       * @param {cadex.ModelPrs_Scene} theScene
+       */
+      constructor(theScene) {
+        super();
+        this.myScene = theScene;
+        this.displayCounter = 0;
+      }
+      /**
+       * @override
+       * @param {Array<ModelPrs_View3dObject>} theView3dObjects
+       * @param {ModelData_Representation} theRepresentation
+       * @param {Array<ModelData_SceneGraphElement>} theAncestors
+       * @param {ModelPrs_DisplayMode} theDisplayMode
+       */
+      display(theView3dObjects, theRepresentation, theAncestors, theDisplayMode) {
+        if (theView3dObjects) {
+          theView3dObjects.forEach(theObj => {
+            // Any identificator can be added to identify object on the scene
+            theObj.sge = theAncestors[theAncestors.length - 1];
+          });
+          this.myScene.display(theView3dObjects, theDisplayMode);
+          this.displayCounter++;
+          if (this.displayCounter % 10 === 0) {
+            aViewPort.fitAll();
+          }
+        }
+      }
+    }
+
+    /**
+      * @param {cadex.ModelPrs_SelectionChangedEvent} theEvent
+    */
+    function onSelectionChanged(theEvent) {
+
+      const formatItem = (theItem) => {
+        let aMessage = '';
+        const aPartName = theItem.object.sge.name ? `'${theItem.object.sge.name}'` : '<unnamed part>';
+        aMessage += `{\n  part: ${aPartName}\n`;
+        if (theItem.shapes) {
+          aMessage += '  shapes: [\n    ';
+          aMessage += theItem.shapes.map(s => {
+            if (s instanceof cadex.ModelData_Vertex) {
+              const anObjectTransformation = theItem.object.transformation;
+              return `Vertex ${s.point.transformed(anObjectTransformation)}`;
+            } else {
+              return Object.keys(cadex.ModelData_ShapeType).find((t) => cadex.ModelData_ShapeType[t] === s.type);
+            }
+          }).join(',\n    ');
+          aMessage += '\n  ]\n';
+        }
+        aMessage += '}';
+
+        return aMessage;
+      };
+
+      if (theEvent.removed.length > 0) {
+        let aMessage = `Deselected ${theEvent.removed.length} item${theEvent.removed.length > 1 ? 's' : ''}:\n`;
+        aMessage += theEvent.removed.map(formatItem).join('\n');
+        console.log(aMessage);
+      }
+      if (theEvent.added.length > 0) {
+        let aMessage = `Selected ${theEvent.added.length} item${theEvent.added.length > 1 ? 's' : ''}:\n`;
+        aMessage += theEvent.added.map(formatItem).join('\n');
+        console.log(aMessage);
+      }
+    }
+
+    /**
+     * @param {cadex.ModelPrs_ContextMenuEvent} theEvent
+     */
+    function showContextMenu(theEvent) {
+      const aPickResult = aScene.pick(theEvent.ray);
+      const aContextMenu = document.getElementById('context-menu');
+      if (aPickResult) {
+        aContextMenu.innerHTML = (aPickResult.shapes ? `${aPickResult.shapes.length} shapes of ` : '') + `Part "${aPickResult.object.sge.name}"`;
+      } else {
+        aContextMenu.innerHTML = 'No object detected';
+      }
+      aContextMenu.style.display = 'block';
+      // point contains mouse event point related to viewport element position
+      // normalizedPoint contains normalize mouse event point (x / canvas width, y / canvas height)
+      aContextMenu.style.left = `${theEvent.point.x}px`;
+      aContextMenu.style.top = `${theEvent.point.y}px`;
+    }
+
+    function hideContextMenu(/*theEvent*/) {
+      const aContextMenu = document.getElementById('context-menu');
+      aContextMenu.style.display = '';
+    }
+
+    function initSelectionModeSelector() {
+      /** @type {HTMLSelectElement} */
+      const aSelectionModeSelector = document.querySelector('#selection-mode-selector>select');
+      if (aSelectionModeSelector) {
+        aSelectionModeSelector.onchange = () => {
+          aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode[aSelectionModeSelector.value];
+        };
+        aSelectionModeSelector.onchange();
+      }
+    }
+
+  </script>
+
+</body>
+
+</html>

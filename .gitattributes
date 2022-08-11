@@ -1,0 +1,16 @@
+# By default use LF for all files treated as text
+* text eol=lf
+
+# Don't convert images, fonts, etc.
+*.png  binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.bmp  binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+*.pdf  binary
+
+# Don't convert cdxfb files
+public/assets/models/native/**/* binary

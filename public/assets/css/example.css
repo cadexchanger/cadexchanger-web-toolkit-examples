@@ -1,0 +1,455 @@
+/*****************************************************************************
+ * Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+ * Copyright (C) 2014-2022, CADEX. All rights reserved.
+ * This file is part of the CAD Exchanger software.
+ * You may use this file under the terms of the BSD license as follows:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * * Redistributions of source code must retain the above copyright notice,
+ *   this list of conditions and the following disclaimer.
+ * * Redistributions in binary form must reproduce the above copyright notice,
+ *   this list of conditions and the following disclaimer in the documentation
+ *   and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,wght@0,200;0,300;0,400;0,600;0,700;0,800;0,900;1,200;1,300;1,400;1,600;1,700;1,800;1,900&display=swap');
+
+html {
+  --ui-kit-text-font-family: 'Nunito Sans';
+  --ui-kit-text-color: #333333;
+}
+
+html, input, select {
+  font-family: var(--ui-kit-text-font-family);
+  color: #333333;
+
+  font-size: 16px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+* {
+  /* For Firefox: */
+  scrollbar-color: rgba(228, 228, 228, 0.5) transparent; /* |color of slider| |color of scroll bar| */
+  scrollbar-width: thin;
+
+  /* For Chrome 28+: */
+  @supports (-webkit-appearance:none) {
+    overflow: overlay;
+  }
+}
+/* For WebKit/Blink: */
+*::-webkit-scrollbar {
+  width: 8px; /* width for vertical scroll */
+  height: 8px; /* hight for horizontal scroll */
+  background-color: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  background-color: rgba(228, 228, 228, 0.5);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:vertical {
+  width: 6px;
+  height: 145px;
+}
+*::-webkit-scrollbar-thumb:horizontal {
+  width: 6px;
+  height: 145px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #BEBEBE;
+}
+*::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
+#example-container {
+  display: flex;
+  justify-content: space-between;
+  height: 100%;
+}
+
+#file-viewer {
+  width: 100%;
+  height: 100%;
+
+  background: #FBFBFB;
+}
+
+#model-selector {
+  display: none;
+
+  width: 20rem;
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+}
+
+.show {
+  display: block !important;
+}
+
+select {
+  display: block;
+  width: 100%;
+  height: calc(1.5em + .75rem + 2px);
+  padding: .375rem 1.75rem .375rem .75rem;
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5;
+
+  background-image: url("/assets/images/expand.svg");
+  background-repeat: no-repeat;
+  background-position: center right 8px;
+  background-size: unset;
+
+  background-color: #FFFFFF;
+
+  border: 1px solid #BEBEBE;
+  border-radius: 6px;
+
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+select:hover {
+  cursor: pointer;
+}
+
+select:focus {
+  outline: none;
+}
+
+select:active {
+  background-color: #F2F2F2;
+}
+
+select[multiple],
+select[size]:not([size="1"]) {
+  height: auto;
+  padding-right: 0.75rem;
+  background-image: none;
+}
+
+/* button {
+  display: inline-block;
+  font-weight: 400;
+  text-align: center;
+  vertical-align: middle;
+  color: #212529;
+  background-color: #f8f9fa;
+  border-color: #f8f9fa;
+  -webkit-appearance: button;
+  border-style: none;
+  padding: 0.375rem 0.75rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  border-radius: 0.25rem;
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+button:hover {
+  color: #212529;
+  background-color: #e2e6ea;
+  border-color: #dae0e5;
+  box-shadow: 0 0 0 0.2rem rgba(216, 217, 219, 0.5);
+  text-decoration: none;
+}
+
+button:focus {
+  color: #212529;
+  background-color: #dae0e5;
+  border-color: #d3d9df;
+  box-shadow: 0 0 0 0.2rem rgba(216, 217, 219, 0.5);
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+} */
+
+button {
+  display: inline-block;
+
+  font-size: 17px;
+  line-height: 23px;
+  font-weight: 400;
+  color: #335eea;
+  text-align: center;
+
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+
+  background-color: #FFFFFF;
+  border: 1px solid #335eea;
+  border-radius: 6px;
+
+  padding: 8px 40px;
+
+  transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+}
+
+button:hover {
+  cursor: pointer;
+  color: #fff;
+  background-color: #335eea;
+}
+
+button:active {
+  cursor: pointer;
+  color: #fff;
+  background-color: #1B3DAD;
+}
+
+button:disabled {
+  cursor: default;
+  border: 1px solid #859EF2;
+  color: #859EF2;
+
+  pointer-events: none;
+}
+
+#source-code-button {
+  position: absolute;
+  right: 1.5rem;
+  bottom: 1.5rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  height: 3rem;
+  width: 3rem;
+  padding: .375rem .75rem;
+
+  background-color: #17a2b8;
+  border: 1px solid #17a2b8;
+  border-radius: 50%;
+
+  color: #fff;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.cadex-viewcube + #source-code-button {
+  right: 1.25rem;
+  bottom: 5.5rem;
+}
+
+#source-code-button:hover {
+  color: #fff;
+  background-color: #138496;
+  border-color: #117a8b;
+}
+
+#source-code-button:focus {
+  text-decoration: none;
+  box-shadow: 0 0 0 0.2rem rgba(23, 162, 184, .5);
+}
+
+#source-code-button>span {
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+  margin-top: -0.1875rem;
+}
+
+
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgb(0, 0, 0);
+  /* Fallback color */
+  background-color: rgba(0, 0, 0, 0.4);
+  /* Black w/ opacity */
+}
+
+.modal-content {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 80%;
+  margin: 2rem auto;
+  padding: 1rem;
+  border: 1px solid #888;
+
+  background-color: #fefefe;
+}
+
+.modal-close {
+  position: absolute;
+  right: 0.25rem;
+  top: 0.25rem;
+
+  padding: 1rem;
+
+  font-size: 28px;
+  font-weight: bold;
+  color: #aaa;
+
+  background-color: white;
+  border: 1px solid white;
+}
+
+/* .modal-body {
+  display: flex;
+  flex-direction: column;
+} */
+
+.close:hover,
+.close:focus {
+  color: black;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+
+input[type="range"] {
+  width: 100%;
+  height: 1.4rem;
+  padding: 0;
+  background-color: transparent;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px #fff, 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+input[type="range"]:focus::-moz-range-thumb {
+  box-shadow: 0 0 0 1px #fff, 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+input[type="range"]:focus::-ms-thumb {
+  box-shadow: 0 0 0 1px #fff, 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+input[type="range"]::-moz-focus-outer {
+  border: 0;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.25rem;
+  background-color: #007bff;
+  border: 0;
+  border-radius: 1rem;
+  -webkit-transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  background-color: #b3d7ff;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 0.5rem;
+  color: transparent;
+  cursor: pointer;
+  background-color: #dee2e6;
+  border-color: transparent;
+  border-radius: 1rem;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  background-color: #007bff;
+  border: 0;
+  border-radius: 1rem;
+  -moz-transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+input[type="range"]::-moz-range-thumb:active {
+  background-color: #b3d7ff;
+}
+
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 0.5rem;
+  color: transparent;
+  cursor: pointer;
+  background-color: #dee2e6;
+  border-color: transparent;
+  border-radius: 1rem;
+}
+
+input[type="range"]::-ms-thumb {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0;
+  margin-right: 0.2rem;
+  margin-left: 0.2rem;
+  background-color: #007bff;
+  border: 0;
+  border-radius: 1rem;
+  -ms-transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  appearance: none;
+}
+
+input[type="range"]::-ms-thumb:active {
+  background-color: #b3d7ff;
+}
+
+input[type="range"]::-ms-track {
+  width: 100%;
+  height: 0.5rem;
+  color: transparent;
+  cursor: pointer;
+  background-color: transparent;
+  border-color: transparent;
+  border-width: 0.5rem;
+}
+
+input[type="range"]::-ms-fill-lower {
+  background-color: #dee2e6;
+  border-radius: 1rem;
+}
+
+input[type="range"]::-ms-fill-upper {
+  margin-right: 15px;
+  background-color: #dee2e6;
+  border-radius: 1rem;
+}

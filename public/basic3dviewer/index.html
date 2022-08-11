@@ -1,0 +1,141 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Visualize CAD or 3D model</title>
+
+  <meta name="description" content="Visualize CAD or 3D model.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="model-selector">
+      <div>Select model:</div>
+      <select></select>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+      
+    /* global cadex, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Create model
+    let aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    // Setup global selection mode to allow shape selection
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({
+      showViewCube: true,
+      autoResize: true,
+    }, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+
+    initModelSelector('ASM Torsen Differential.stp', loadAndDisplayModel);
+
+    async function loadAndDisplayModel(theModelPath) {
+
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
+        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+        if (aLoadResult.hasBRepRep) {
+          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+        }
+        aScene.globalDisplayMode = aDisplayMode;
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
+        });
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+  </script>
+
+</body>
+
+</html>

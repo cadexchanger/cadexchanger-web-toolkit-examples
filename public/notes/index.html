@@ -1,0 +1,462 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Notes</title>
+
+  <meta name="description" content="Notes.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="notes.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="model-selector">
+      <div>Select model:</div>
+      <select></select>
+    </div>
+    <div id="help">
+      <div>Press <span><img src="/assets/images/mouse-right.png"></span> to show context menu</div>
+    </div>
+    <div id="notes-list">
+      <div style="margin: 1rem">Notes:</div>
+      <div id="notes-container">
+      </div>
+    </div>
+    <div id="context-menu" class="context-menu">
+      <div id="add-note-button">Add note</div>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Create model
+    const aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    // Setup global selection mode to allow shape selection
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+
+    /** @type {cadex.ModelPrs_PickResult} */
+    let aLastPickResult;
+
+    // Subscribe to context menu event (right mouse click)
+    aViewPort.addEventListener('contextMenu', showContextMenu);
+    // Hide context menu on any viewport manipulation.
+    aViewPort.addEventListener('frameRendered', hideContextMenu);
+    // Add note to the viewer on "add" button click
+    document.getElementById('add-note-button').addEventListener('click', () => {
+      hideContextMenu();
+      createNote();
+    });
+
+    initModelSelector('round flush pin gage.prt', loadAndDisplayModel);
+
+    async function loadAndDisplayModel(theModelPath) {
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+      aNotesManager.clean();
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
+        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+        if (aLoadResult.hasBRepRep) {
+          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+        }
+        aScene.globalDisplayMode = aDisplayMode;
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
+        });
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+    }
+
+    /**
+     * Represents editable model note with 'active' state.
+     */
+    class Note extends cadex.ModelPrs_EventDispatcher {
+      /**
+       * @param {cadex.ModelData_PointLike} thePoint
+       * @param {cadex.ModelPrs_View3dObject} theView3dObj
+       * @param {cadex.ModelPrs_CameraState} theCameraState
+       */
+      constructor(thePoint, theView3dObj, theCameraState) {
+        super();
+
+        const aPinElement = document.createElement('div');
+        const aCardElement = document.createElement('div');
+
+        this.annotation = new cadex.ModelPrs_Annotation({
+          position: thePoint,
+          view3dObject: theView3dObj,
+          camera: theCameraState,
+          markerElement: aPinElement,
+          labelElement: aCardElement,
+          markerShown: true,
+          labelShown: false,
+        });
+
+        /** @type {string} */
+        this.label = '';
+        /** @type {boolean} */
+        this._edit = true;
+
+        aPinElement.classList.add('pin');
+        aCardElement.classList.add('card');
+
+        aPinElement.addEventListener('click', () => {
+          this.dispatchEvent({ type: 'markerClicked' });
+        });
+
+        this.active = true;
+        this._updateCard();
+      }
+
+      get edit() {
+        return this._edit;
+      }
+
+      set edit(theEdit) {
+        if (theEdit !== this._edit) {
+          this._edit = theEdit;
+          this._updateCard();
+          this.dispatchEvent({ type: 'editChanged', value: theEdit });
+        }
+      }
+
+      get active() {
+        return this.labelShown;
+      }
+
+      set active(theActive) {
+        if (theActive !== this.annotation.labelShown) {
+          this.annotation.labelShown = theActive;
+          this.annotation.markerElement.classList.toggle('active', theActive);
+          this.dispatchEvent({ type: 'activeChanged', value: theActive });
+        }
+      }
+
+      _updateCard() {
+        const aLabelElement = this.annotation.labelElement;
+        aLabelElement.classList.toggle('editing', this._edit);
+        if (this._edit) {
+          aLabelElement.textContent = '';
+
+          const aCardInner = document.createElement('div');
+          aCardInner.classList.add('card__inner');
+          aLabelElement.appendChild(aCardInner);
+
+          const anInput = document.createElement('input');
+          anInput.type = 'text';
+          anInput.placeholder = 'Write text...';
+          anInput.value = this.label;
+          aCardInner.appendChild(anInput);
+
+          const saveEdit = () => {
+            this.label = anInput.value;
+            this.edit = false;
+          };
+          const cancelEdit = () => {
+            this.edit = false;
+          };
+
+          const aSaveButton = document.createElement('img');
+          aSaveButton.src = '/assets/images/done.svg';
+          aSaveButton.addEventListener('click', saveEdit);
+          aCardInner.appendChild(aSaveButton);
+
+          const aCancelButton = document.createElement('img');
+          aCancelButton.src = '/assets/images/delete.svg';
+          aCancelButton.addEventListener('click', cancelEdit);
+          aCardInner.appendChild(aCancelButton);
+
+          // Some keyboard user friendliness: save on 'enter' press, cancel on 'escape' press
+          anInput.addEventListener('keyup', (theEvent) => {
+            if (theEvent.key === 'Enter') {
+              saveEdit();
+            } else if (theEvent.key === 'Escape') {
+              cancelEdit();
+            }
+          });
+
+          // focus input when it will be shown
+          setTimeout(() => {
+            anInput.focus();
+          }, 100);
+        } else {
+          aLabelElement.innerHTML = `<div class="note-label"><span>${this.label}</span></div>`;
+        }
+      }
+    }
+
+    /**
+     * Represents collection of notes with no more than one active note.
+     */
+    class NoteManager extends cadex.ModelPrs_EventDispatcher {
+      /**
+       * @param {cadex.ModelPrs_ViewPort} theViewport
+       */
+      constructor(theViewport) {
+        super();
+
+        this.viewport = theViewport;
+
+        /** @type {Set<Note>} */
+        this.notes = new Set();
+
+        /** @type {Note} */
+        this.activeNote = null;
+
+        // Hide active note on any viewport manipulation (e.g. camera rotation)
+        this.viewport.addEventListener('frameRendered', () => {
+          this.activateNote(null);
+        });
+      }
+
+      /**
+       * @param {Note} theNote
+       */
+      addNote(theNote) {
+        if (this.notes.has(theNote)) {
+          return;
+        }
+        this.notes.add(theNote);
+        this.viewport.addMarker(theNote.annotation);
+
+        theNote.onMarkerClicked = () => {
+          this.activateNote(theNote);
+        };
+        theNote.addEventListener('markerClicked', theNote.onMarkerClicked);
+
+        this.dispatchEvent({ type: 'noteAdded', note: theNote });
+      }
+
+      /**
+       * @param {Note} theNote
+       */
+      removeNote(theNote) {
+        if (!this.notes.has(theNote)) {
+          return;
+        }
+        this.notes.delete(theNote);
+        this.viewport.removeMarker(theNote.annotation);
+
+        theNote.removeEventListener('markerClicked', theNote.onMarkerClicked);
+
+        this.dispatchEvent({ type: 'noteRemoved', note: theNote });
+      }
+
+      /**
+       * @param {Note} theNote
+       */
+      async activateNote(theNote) {
+        if (this.activeNote === theNote) {
+          return;
+        }
+        if (this.activeNote) {
+          this.activeNote.active = false;
+          this.activeNote = null;
+          this.dispatchEvent({ type: 'noteDeactivated', note: this.activeNote });
+        }
+        if (!theNote) {
+          return;
+        }
+        // wait while animation finish, then show label
+        if (theNote.annotation.camera) {
+          await this.viewport.changeCamera(theNote.annotation.camera);
+        }
+        theNote.active = true;
+        this.activeNote = theNote;
+        this.dispatchEvent({ type: 'noteActivated', note: this.activeNote });
+      }
+
+      clean() {
+        for (let aNote of this.notes) {
+          this.removeNote(aNote);
+        }
+      }
+    }
+
+    // Create notes manager attached to the viewport
+    const aNotesManager = new NoteManager(aViewPort);
+    // Regenerate notes list
+    aNotesManager.addEventListener('noteAdded', updateNotesList);
+    aNotesManager.addEventListener('noteRemoved', updateNotesList);
+
+    /**
+     * @param {cadex.ModelPrs_ViewPort.ContextMenuEvent} theEvent
+      */
+    function showContextMenu(theEvent) {
+      const aContextMenu = document.getElementById('context-menu');
+      aContextMenu.style.display = 'block';
+      aContextMenu.style.left = `${theEvent.point.x}px`;
+      aContextMenu.style.top = `${theEvent.point.y}px`;
+
+      // Save pick result to global variable to reuse it on note creation
+      aLastPickResult = aScene.pick(theEvent.ray);
+      // Enable 'add note' button only when view3d object has been clicked
+      document.getElementById('add-note-button').disabled = !aLastPickResult;
+    }
+
+    function hideContextMenu() {
+      const aContextMenu = document.getElementById('context-menu');
+      aContextMenu.style.display = '';
+    }
+
+    /**
+     * Creates temporary note, display it in viewer, save to manager when editing is finished.
+     */
+    function createNote() {
+      // Deactivate active note
+      aNotesManager.activateNote(null);
+
+      // Create temporary note and display in viewer
+      const aNewNote = new Note(aLastPickResult.point, aLastPickResult.object, aViewPort.getCameraProperties());
+      aNewNote.active = true;
+      aViewPort.addMarker(aNewNote.annotation);
+
+      let onViewportChanged;
+
+      // Save temporary note to notes manager if label is not empty
+      const onEditChanged = () => {
+        aNewNote.removeEventListener('editChanged', onEditChanged);
+        aViewPort.removeEventListener('frameRendered', onViewportChanged);
+        if (aNewNote.label) {
+          aNotesManager.addNote(aNewNote);
+          aNotesManager.activateNote(aNewNote);
+        } else {
+          aViewPort.removeMarker(aNewNote.annotation);
+        }
+      };
+
+      // Remove temporary note when viewer has been changed (e.g. rotated by input)
+      onViewportChanged = () => {
+        aNewNote.label = '';
+        onEditChanged();
+      };
+
+      aNewNote.addEventListener('editChanged', onEditChanged);
+      aViewPort.addEventListener('frameRendered', onViewportChanged);
+    }
+
+    /**
+     * Updates list with notes
+     */
+    function updateNotesList() {
+      const aNotesContainer = document.getElementById('notes-container');
+      // Just for demo purpose: clean up all content and re-generate cards
+      aNotesContainer.innerHTML = '';
+      aNotesManager.notes.forEach((theNote) => {
+        const aNoteListElement = document.createElement('div');
+        aNoteListElement.classList.add('card');
+        aNoteListElement.style.display = 'flex';
+
+        const aLabelElement = document.createElement('div');
+        aLabelElement.innerHTML = theNote.label;
+        aLabelElement.classList.add('note-label');
+        aNoteListElement.appendChild(aLabelElement);
+
+        const aDeleteButton = document.createElement('img');
+        aDeleteButton.src = '/assets/images/delete.svg';
+        aDeleteButton.addEventListener('click', (theEvent) => {
+          aNotesManager.removeNote(theNote);
+          theEvent.stopPropagation();
+        });
+        aNoteListElement.appendChild(aDeleteButton);
+
+        aNoteListElement.addEventListener('click', () => {
+          aNotesManager.activateNote(theNote);
+        });
+
+        aNotesContainer.appendChild(aNoteListElement);
+      });
+    }
+
+  </script>
+
+</body>
+
+</html>

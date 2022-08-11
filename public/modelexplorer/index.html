@@ -1,0 +1,759 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Model Explorer</title>
+
+  <meta name="description" content="Model Explorer.">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="modelexplorer.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree/dist/themes/default/style.min.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+
+    <div id="model-explorer-sidebar">
+      <div id="file-viewer"></div>
+
+      <div id="file-scenegraph-container">
+        <div id="model-selector">
+          <div>Select model:</div>
+          <select></select>
+        </div>
+        <div id="tree-container"></div>
+      </div>
+    </div>
+
+    <div id="element-info-container">
+      <div id="info-card"></div>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill for old browsers (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+
+  <!-- Helper libraries -->
+  <!-- Required by jstree (https://jquery.com/) -->
+  <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
+  <!-- jstree library is used to simplify create tree with html (https://www.jstree.com) -->
+  <script src="https://cdn.jsdelivr.net/npm/jstree/dist/jstree.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, $, initModelSelector, modelUrl, fetchFile */
+
+    import '@cadexchanger/web-toolkit';
+
+    // Global model
+    const aModel = new cadex.ModelData_Model();
+    // Create scene for visualization
+    const aScene = new cadex.ModelPrs_Scene();
+    // Setup global selection mode to allow shape selection
+    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+
+    // Create viewport with default config and div element attach to.
+    const aViewPort = new cadex.ModelPrs_ViewPort({
+      showViewCube: true,
+      autoResize: true,
+    }, document.getElementById('file-viewer'));
+    // Attach viewport to scene to render content of it
+    aViewPort.attachToScene(aScene);
+
+    // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
+    $('#tree-container').jstree({
+      core: {
+        multiple: false,
+        check_callback: true,
+        themes: {
+          'name': null, //'default',
+          'dots': true,
+        }
+      },
+      'types': {
+        'file': {
+          'icon': 'icon-file'
+        },
+        'assembly': {
+          'icon': 'icon-assembly'
+        },
+        'instance': {
+          'icon': 'icon-instance'
+        },
+        'part': {
+          'icon': 'icon-part'
+        }
+      },
+      'plugins': ['wholerow', 'types']
+    })
+      .on('select_node.jstree', async (theEvent, theData) => {
+        if (theData.node.data && theData.node.data.sge) {
+          const aVisitor = new ElementVisitor(theData.node.data.textureBasePath);
+          await theData.node.data.sge.accept(aVisitor);
+          $('#info-card').html(aVisitor.info);
+        } else {
+          const anInfoCardMessage = document.createElement('span');
+          anInfoCardMessage.textContent = 'No information available.';
+          $('#info-card').html(anInfoCardMessage);
+        }
+      });
+
+    // Get jsTree object
+    const aJsTree = $('#tree-container').jstree(true);
+    let aCurrentModelNode;
+
+    initModelSelector('as1-oc-214.stp', loadAndTraverseModel);
+
+    async function loadAndTraverseModel(theModelPath, theModelName) {
+
+      // Clean up scene to display new model
+      aScene.removeAll(true);
+
+      const anInfoCardMessage = document.createElement('span');
+      anInfoCardMessage.textContent = 'Select tree node to see element info.';
+      $('#info-card').html(anInfoCardMessage);
+
+      if (aCurrentModelNode) {
+        aJsTree.delete_node(aCurrentModelNode);
+      }
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
+        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+        if (aLoadResult.hasBRepRep) {
+          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+        }
+        aScene.globalDisplayMode = aDisplayMode;
+
+        // Convert added model roots into visualization objects and display it
+        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
+          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
+          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
+        });
+
+        // Move camera to position when the whole model is in sight
+        aViewPort.fitAll();
+
+        // Create root file item
+        // eslint-disable-next-line require-atomic-updates
+        aCurrentModelNode = aJsTree.create_node(null, {
+          text: theModelName,
+          type: 'file',
+          data: {}
+        });
+
+        // Feed tree with model structure
+        const aVisitor = new SceneGraphToJsTreeConverter(aCurrentModelNode, modelUrl(theModelPath));
+        await aModel.accept(aVisitor);
+        aJsTree.open_all(null, 0);
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+
+    }
+
+    // Use a visitor to feed jsTree
+    class SceneGraphToJsTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
+
+      constructor(theRootNode, theTextureBasePath) {
+        super();
+        this.nodes = [theRootNode];
+        this.textureBasePath = theTextureBasePath;
+      }
+      currentNode() {
+        return this.nodes[this.nodes.length - 1];
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Part} thePart
+       */
+      visitPart(thePart) {
+        const aTreeItem = {
+          text: thePart.name || 'Unnamed Part',
+          type: 'part',
+          data: {
+            sge: thePart,
+            textureBasePath: this.textureBasePath
+          }
+        };
+        aJsTree.create_node(this.currentNode(), aTreeItem);
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceEnter(theInstance) {
+        const aTreeItem = {
+          text: theInstance.name || 'Unnamed Instance',
+          type: 'instance',
+          data: {
+            sge: theInstance,
+            textureBasePath: this.textureBasePath
+          }
+        };
+        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        this.nodes.push(aNode);
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceLeave(/*theInstance*/) {
+        this.nodes.pop();
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      visitAssemblyEnter(theAssembly) {
+        const aTreeItem = {
+          text: theAssembly.name || 'Unnamed Assembly',
+          type: 'assembly',
+          data: {
+            sge: theAssembly,
+            textureBasePath: this.textureBasePath
+          }
+        };
+        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        this.nodes.push(aNode);
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      visitAssemblyLeave(/*theAssembly*/) {
+        this.nodes.pop();
+      }
+
+    }
+
+    // Use a visitor to collect information about scenegraph element
+    class ElementVisitor extends cadex.ModelData_SceneGraphElementVisitor {
+      /**
+       * @param {string} theTextureBasePath
+       */
+      constructor(theTextureBasePath) {
+        super();
+        this.info = '<h3>Information</h3>';
+        this.textureBasePath = theTextureBasePath;
+      }
+      /**
+       * @param {!cadex.ModelData_SceneGraphElement} theElement
+       */
+      async visitElement(theElement) {
+        const generalInfo = formatKeyValue('Uuid', theElement.uuid) + formatKeyValue('Name', theElement.name);
+        this.info += formatKeyValue('General', generalInfo);
+
+        this.info += formatKeyValue('Appearance', await formatAppearance(theElement.appearance, this.textureBasePath));
+
+        const aPropsText = await formatPropertyTable(theElement.properties);
+        this.info += formatKeyValue('Properties', aPropsText);
+
+        const aPMIText = await formatPMITable(theElement.pmi);
+        this.info += formatKeyValue('PMI', aPMIText);
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Part} thePart
+       */
+      async visitPart(thePart) {
+        await this.visitElement(thePart);
+        const aFormatter = new RepresentationFormatter(this.textureBasePath);
+        await thePart.acceptRepresentationVisitor(aFormatter);
+        this.info += formatKeyValue('Representation', aFormatter.str);
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      async visitInstanceEnter(theInstance) {
+        await this.visitElement(theInstance);
+        this.info += formatKeyValue('Transformation', theInstance.transformation.toString().split(/\n/g).map(row => `<span>${row}</span><br>`).join(''));
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      async visitAssemblyEnter(theAssembly) {
+        return this.visitElement(theAssembly);
+      }
+
+    }
+
+    function formatKeyValue(theKey, theValue) {
+      // Wrap simple text with span element
+
+      if (String(theValue).indexOf('<') === -1) {
+        theValue = `<span>${theValue}</span>`;
+      }
+      return `<div class="info-row"><div class="info-name">${theKey}:</div><div class="info-value">${theValue}</div></div>`;
+    }
+
+    function formatEnumValue(theEnum, theValue) {
+      return Object.keys(theEnum).find(v => theEnum[v] === theValue);
+    }
+
+    class TextureFormatter extends cadex.ModelData_TextureVisitor {
+      /**
+       * @param {string} theTextureBasePath
+       */
+      constructor(theTextureBasePath) {
+        super();
+        this.str = '';
+        this.textureBasePath = theTextureBasePath;
+      }
+      /**
+       * @param {cadex.ModelData_Texture} theTexture
+       */
+      formatTexture(theTexture) {
+        this.str += formatKeyValue('Name', theTexture.name);
+        this.str += formatKeyValue('Uuid', theTexture.uuid);
+        this.str += formatKeyValue('Type', formatEnumValue(cadex.ModelData_TextureType, theTexture.type));
+        let aParametersStr = null;
+        if (theTexture.parameters) {
+          aParametersStr = formatKeyValue('Generate mipmaps', theTexture.parameters.generateMipmaps);
+          aParametersStr += formatKeyValue('Magnification Filter', formatEnumValue(cadex.ModelData_TextureMagnificationFilter, theTexture.parameters.magnificationFilter));
+          aParametersStr += formatKeyValue('Minification Filter', formatEnumValue(cadex.ModelData_TextureMinificationFilter, theTexture.parameters.minificationFilter));
+          aParametersStr += formatKeyValue('Wrap Mode', `(${formatEnumValue(cadex.ModelData_TextureWrapMode, theTexture.parameters.wrapModeU)}, ${formatEnumValue(cadex.ModelData_TextureWrapMode, theTexture.parameters.wrapModeV)})`);
+          aParametersStr += formatKeyValue('Blend mode', formatEnumValue(cadex.ModelData_TextureBlendMode, theTexture.parameters.blendMode));
+          aParametersStr += formatKeyValue('Mapping mode', formatEnumValue(cadex.ModelData_TextureMappingMode, theTexture.parameters.mappingMode));
+          aParametersStr += formatKeyValue('Rotation', theTexture.parameters.rotation);
+          aParametersStr += formatKeyValue('Scale', `(${theTexture.parameters.scaleU.toFixed(2)}, ${theTexture.parameters.scaleV.toFixed(2)})`);
+          aParametersStr += formatKeyValue('Translation', `(${theTexture.parameters.translationU.toFixed(2)}, ${theTexture.parameters.translationV.toFixed(2)})`);
+        }
+        this.str += formatKeyValue('Parameters', aParametersStr);
+      }
+      /**
+       * @param {cadex.ModelData_FileTexture} theFileTexture
+       */
+      async visitFileTexture(theFileTexture) {
+        this.str += '<i>File Texture</i>';
+        this.formatTexture(theFileTexture);
+        // Considered the path is relative
+        this.str += formatKeyValue('FilePath', `<img width="200" height="200" src="${this.textureBasePath}/${theFileTexture.filePath}">
+                                                <br>${theFileTexture.filePath}`);
+      }
+      /**
+       * @param {cadex.ModelData_PixMapTexture} thePixMapTexture
+       */
+      async visitPixMapTexture(thePixMapTexture) {
+        this.str += '<i>PixMap Texture</i>';
+        this.formatTexture(thePixMapTexture);
+        let aPixMapStr = null;
+        const aPixMap = await thePixMapTexture.pixmap();
+        if (aPixMap) {
+          aPixMapStr = formatKeyValue('PixelFormat', formatEnumValue(cadex.ModelData_PixelFormat, aPixMap.pixelFormat));
+          aPixMapStr += formatKeyValue('Width', aPixMap.width);
+          aPixMapStr += formatKeyValue('Height', aPixMap.height);
+          aPixMapStr += formatKeyValue('Data', aPixMap.pixelData.byteLength + ' bytes');
+        }
+        this.str += formatKeyValue('PixMap', aPixMapStr);
+      }
+    }
+
+    /**
+     * @param {!cadex.ModelData_Appearance} theAppearance
+     */
+    async function formatAppearance(theAppearance, theTextureBasePath) {
+      if (!theAppearance) {
+        return null;
+      }
+      const formatColor = (theColor) => {
+        return `<span class="colored-square" style="background:rgba${theColor}"></span><span>${theColor}</span>`;
+      };
+      let aString = formatKeyValue('Uuid', theAppearance.uuid);
+      aString += formatKeyValue('Name', theAppearance.name);
+      if (theAppearance.material) {
+        let aMapString = formatKeyValue('Uuid', theAppearance.material.uuid);
+        aMapString += formatKeyValue('Name', theAppearance.material.name);
+        aMapString += formatKeyValue('Ambient', formatColor(theAppearance.material.ambientColor));
+        aMapString += formatKeyValue('Diffuse', formatColor(theAppearance.material.diffuseColor));
+        aMapString += formatKeyValue('Specular', formatColor(theAppearance.material.specularColor));
+        aMapString += formatKeyValue('Emissive', formatColor(theAppearance.material.emissiveColor));
+        aMapString += formatKeyValue('Shininess', theAppearance.material.shininess);
+        aString += formatKeyValue('Material', aMapString);
+      } if (theAppearance.genericColor) {
+        let aColorString = formatKeyValue('Uuid', theAppearance.genericColor.uuid);
+        aColorString += formatKeyValue('Name', theAppearance.genericColor.name);
+        aColorString += formatKeyValue('Value', formatColor(theAppearance.genericColor));
+        aString += formatKeyValue('Color', aColorString);
+      }
+
+      if (theAppearance.textureSet) {
+        const aFormatter = new TextureFormatter(theTextureBasePath);
+        let aTextureSetString = formatKeyValue('Uuid', theAppearance.textureSet.uuid);
+        aTextureSetString += formatKeyValue('Name', theAppearance.textureSet.name);
+
+        await theAppearance.textureSet.accept(aFormatter);
+        aString += formatKeyValue('TextureSet', aTextureSetString + aFormatter.str);
+      }
+      return aString;
+    }
+    /**
+     * @param {!cadex.ModelData_PropertyTable} thePropertyTable
+     * @returns {Promise<string>}
+     */
+    async function formatPropertyTable(thePropertyTable) {
+      if (!thePropertyTable) {
+        return null;
+      }
+      const aProperties = await thePropertyTable.properties();
+      let aString = '';
+      Object.keys(aProperties).forEach(thePropName => {
+        aString += formatKeyValue(thePropName, aProperties[thePropName]);
+      });
+      return aString;
+    }
+
+    // Use a visitor to iterate over representations
+    class RepresentationFormatter extends cadex.ModelData_RepresentationVisitor {
+      /**
+       * @param {string} theTextureBasePath
+       */
+      constructor(theTextureBasePath) {
+        super();
+        this.str = '';
+        this.textureBasePath = theTextureBasePath;
+        this.exploreSubShapes = false;
+      }
+      /**
+       * @param {cadex.ModelData_BRepRepresentation} theBRepRep
+       */
+      async visitBRepRepresentation(theBRepRep) {
+        this.str += '<i>BRep Representation</i>';
+        this.str += formatKeyValue('Uuid', theBRepRep.uuid);
+        this.str += formatKeyValue('Name', theBRepRep.name);
+        let aBodiesStr = '';
+        const aBodyList = await theBRepRep.bodyList();
+        for (let i = 0; i < aBodyList.size(); i++) {
+          const aBody = aBodyList.element(i);
+          const aBodyTypeStr = formatEnumValue(cadex.ModelData_BodyType, aBody.bodyType);
+          if (this.exploreSubShapes) {
+            let aSubShapeStr = '';
+            for (let aShape of aBody) {
+              aSubShapeStr += this.visitShape(aShape);
+            }
+            aBodiesStr += formatKeyValue(`${aBodyTypeStr} body`, aSubShapeStr);
+          } else {
+            aBodiesStr += formatKeyValue(`Body ${i + 1}`, aBodyTypeStr);
+          }
+        }
+        this.str += formatKeyValue('Bodies', aBodiesStr);
+      }
+
+      /**
+       * @param {cadex.ModelData_Shape} theShape
+       * @returns {string}
+       */
+      visitShape(theShape) {
+        const aShapeType = Object.keys(cadex.ModelData_ShapeType).find(theKey => cadex.ModelData_ShapeType[theKey] === theShape.type);
+        let aShapeStr = '';
+        if (theShape.type === cadex.ModelData_ShapeType.Vertex) {
+          aShapeStr += theShape.point;
+        } else {
+          for (let aShape of theShape) {
+            aShapeStr += this.visitShape(aShape);
+          }
+        }
+        return formatKeyValue(aShapeType, aShapeStr);
+      }
+
+      /**
+       * @param {cadex.ModelData_PolyRepresentation} thePolyRep
+       */
+      async visitPolyRepresentation(thePolyRep) {
+        this.str += '<i>Poly Representation</i>';
+        this.str += formatKeyValue('Uuid', thePolyRep.uuid);
+        this.str += formatKeyValue('Name', thePolyRep.name);
+        const aPolyShapeList = await thePolyRep.polyShapeList();
+        for (let i = 0; i < aPolyShapeList.size(); i++) {
+          const aPolyShape = aPolyShapeList.element(i);
+          if (aPolyShape instanceof cadex.ModelData_IndexedTriangleSet) {
+            let anITSStr = formatKeyValue('Uuid', aPolyShape.uuid);
+            anITSStr += formatKeyValue('Name', aPolyShape.name);
+            anITSStr += formatKeyValue('Triangles', aPolyShape.numberOfFaces());
+            anITSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
+            anITSStr += formatKeyValue('Normals', aPolyShape.hasNormals() ? `[${aPolyShape.numberOfNormals()} items]` : null);
+            anITSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
+            anITSStr += formatKeyValue('UVCoordinates', aPolyShape.hasUVCoordinates() ? `[${aPolyShape.numberOfUVCoordinates()} items]` : null);
+            anITSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
+            this.str += formatKeyValue(`Triangle Set ${i + 1}`, anITSStr);
+          } else if (aPolyShape instanceof cadex.ModelData_PolyLineSet) {
+            let aPLSStr = formatKeyValue('Uuid', aPolyShape.uuid);
+            aPLSStr += formatKeyValue('Name', aPolyShape.name);
+            aPLSStr += formatKeyValue('Polylines', aPolyShape.numberOfPolylines());
+            aPLSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
+            aPLSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
+            aPLSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
+            this.str += formatKeyValue(`Polyline Set ${i + 1}`, aPLSStr);
+          } else if (aPolyShape instanceof cadex.ModelData_PolyPointSet) {
+            let aPPSStr = formatKeyValue('Uuid', aPolyShape.uuid);
+            aPPSStr += formatKeyValue('Name', aPolyShape.name);
+            aPPSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
+            aPPSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
+            aPPSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
+            this.str += formatKeyValue(`Point Set ${i + 1}`, aPPSStr);
+          }
+        }
+      }
+    }
+
+    // Use a visitor to iterate over PMI outlines
+    class PMIOutlineFormatter extends cadex.ModelData_PMIOutlineVisitor {
+      constructor() {
+        super();
+        this.str = '';
+      }
+      /**
+       * @param {cadex.ModelData_PMIPolyOutline} theOutline
+       */
+      visitPolyOutline(theOutline) {
+        this.str += formatKeyValue('Type', 'PolyOutline');
+        let aPolyLinesStr = '';
+        for (let i = 0, n = theOutline.lineSet.numberOfPolylines(); i < n; i++) {
+          aPolyLinesStr += formatKeyValue('Line ' + (i + 1), theOutline.lineSet.numberOfLineVertices(i) + ' vertices');
+        }
+        this.str += formatKeyValue('LineSet', aPolyLinesStr);
+      }
+      /**
+       * @param {cadex.ModelData_PMIPoly2dOutline} theOutline
+       */
+      visitPoly2dOutline(/*theOutline*/) {
+        this.str += formatKeyValue('Type', 'Poly2dOutline');
+      }
+      /**
+       * @param {cadex.ModelData_PMICurveOutline} theOutline
+       */
+      visitCurveOutline(/*theOutline*/) {
+        this.str += formatKeyValue('Type', 'CurveOutline');
+      }
+      /**
+       * @param {cadex.ModelData_PMICurve2dOutline} theOutline
+       */
+      visitCurve2dOutline(/*theOutline*/) {
+        this.str += formatKeyValue('Type', 'Curve2dOutline');
+      }
+      /**
+       * @param {cadex.ModelData_PMICompositeOutline} theOutline
+       * @returns {boolean}
+       */
+      visitCompositeOutlineEnter(theOutline) {
+        this.str += formatKeyValue('Type', 'CompositeOutline');
+        this.str += formatKeyValue('Outlines', theOutline.outlines.map(formatPMIOutline).join(''));
+      }
+    }
+
+    /**
+     * @param {cadex.ModelData_PMIOutline} theOutline
+     */
+    async function formatPMIOutline(theOutline) {
+      if (!theOutline) {
+        return null;
+      }
+      const aVisitor = new PMIOutlineFormatter();
+      await theOutline.accept(aVisitor);
+      return aVisitor.str;
+    }
+
+    // Use a visitor to iterate over Graphical PMI components
+    class PMIComponentFormatter extends cadex.ModelData_PMIGraphicalElementComponentVisitor {
+      constructor() {
+        super();
+        this.str = '';
+      }
+      /**
+       * @param {cadex.ModelData_PMIOutlinedComponent} theComponent
+       */
+      async visitOutlinedComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Outlined');
+        this.str += formatKeyValue('Outline', await formatPMIOutline(theComponent.outline));
+      }
+      /**
+       * @param {cadex.ModelData_PMITextComponent} theComponent
+       */
+      async visitTextComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Text');
+        this.str += formatKeyValue('Text', `"${theComponent.text}"`);
+        this.str += formatKeyValue('Font Size', theComponent.fontSize);
+        this.str += formatKeyValue('Text Origin', theComponent.textOrigin);
+        this.str += formatKeyValue('Outline', await formatPMIOutline(theComponent.outline));
+      }
+      /**
+       * @param {cadex.ModelData_PMITriangulatedComponent} theComponent
+       */
+      visitTriangulatedComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Triangulated');
+        this.str += formatKeyValue('Triangle Set', theComponent.triangleSet ? `{${theComponent.triangleSet.numberOfFaces()} triangles}` : null);
+      }
+    }
+
+    /**
+     * @param {cadex.ModelData_PMIGraphicalElementComponent} theComponent
+     * @returns {string}
+     */
+    async function formatPMIComponent(theComponent) {
+      const aVisitor = new PMIComponentFormatter();
+      await theComponent.accept(aVisitor);
+      return aVisitor.str;
+    }
+
+    /**
+     * @param {cadex.ModelData_PMIGraphicalElement} theElement
+     * @param {Array<cadex.ModelData_PMIPlane>} thePlanes
+     * @returns {string}
+     */
+    async function formatPMIGraphicalElement(theElement, thePlanes) {
+      if (!theElement) {
+        return null;
+      }
+      let aPMIGraphicalElementStr = formatKeyValue('Name', theElement.name);
+      let aComponentsStr = '';
+      for (let j = 0, k = theElement.components.length; j < k; ++j) {
+        aComponentsStr += `<i>Component ${j + 1}</i>` + await formatPMIComponent(theElement.components[j]);
+      }
+      aPMIGraphicalElementStr += formatKeyValue('Components', aComponentsStr);
+      aPMIGraphicalElementStr += formatKeyValue('Plane', theElement.plane ? (`ref {Plane ${thePlanes.indexOf(theElement.plane) + 1}}`) : null);
+
+      return aPMIGraphicalElementStr;
+    }
+
+    /**
+     * @param {cadex.ModelData_PMICamera} theCamera
+     * @returns {string}
+     */
+    function formatPMICamera(theCamera) {
+      if (!theCamera) {
+        return formatKeyValue('Camera', null);
+      }
+      let aCameraStr = '';
+      aCameraStr += formatKeyValue('Name', theCamera.name);
+      aCameraStr += formatKeyValue('location', theCamera.location);
+      aCameraStr += formatKeyValue('targetPoint', theCamera.targetPoint);
+      aCameraStr += formatKeyValue('upDirection', theCamera.upDirection);
+      return formatKeyValue('Camera', aCameraStr);
+    }
+
+    /**
+    * @param {!cadex.ModelData_PMITable} thePMITable
+    * @returns {Promise<string>}
+    */
+    async function formatPMITable(thePMITable) {
+      if (!thePMITable) {
+        return null;
+      }
+      let aString = formatKeyValue('Name', thePMITable.name);
+      aString += formatKeyValue('Uuid', thePMITable.uuid);
+      const aDataItems = await thePMITable.pmiDataItems();
+      const aViews = await thePMITable.views();
+      const aPlanes = await thePMITable.planes();
+
+      let aDataItemStr = aDataItems.length > 0 ? '' : '[ ]';
+      for (let i = 0, n = aDataItems.length; i < n; i++) {
+        const aDataItem = aDataItems[i];
+        aDataItemStr += `<i>PMI Data Item ${i + 1}</i>`;
+        aDataItemStr += formatKeyValue('Uuid', aDataItem.uuid);
+        aDataItemStr += formatKeyValue('Name', aDataItem.name);
+        aDataItemStr += formatKeyValue('Type', Object.keys(cadex.ModelData_PMIType).find(key => `${cadex.ModelData_PMIType[key]}` === `${aDataItem.type}`));
+        const aPropsText = await formatPropertyTable(aDataItem.properties);
+        aDataItemStr += formatKeyValue('Properties', aPropsText);
+        const aGraphicalElementText = await formatPMIGraphicalElement(aDataItem.graphicalElement, aPlanes);
+        aDataItemStr += formatKeyValue('Graphical Element', aGraphicalElementText);
+      }
+      aString += formatKeyValue('PMI Data', aDataItemStr);
+
+      let aViewsStr = aViews.length > 0 ? '' : '[ ]';
+      for (let i = 0, n = aViews.length; i < n; i++) {
+        const aSavedView = aViews[i];
+        aViewsStr += `<i>Saved View ${i + 1}</i>`;
+        aViewsStr += formatKeyValue('Uuid', aSavedView.uuid);
+        aViewsStr += formatKeyValue('Name', aSavedView.name);
+        aViewsStr += formatPMICamera(aSavedView.camera);
+        aViewsStr += formatKeyValue('Elements', aSavedView.elements.map(theElement => `{Graphical Element ${aDataItems.indexOf(theElement) + 1}}`));
+      }
+      aString += formatKeyValue('Saved Views', aViewsStr);
+
+      let aPlanesStr = aPlanes.length > 0 ? '' : '[ ]';
+      for (let i = 0, n = aPlanes.length; i < n; i++) {
+        aPlanesStr += `<i>Plane ${i + 1}</i>`;
+        const aPMIPlane = aPlanes[i];
+        aPlanesStr += formatKeyValue('Name', aPMIPlane.name);
+        aPlanesStr += formatKeyValue('Uuid', aPMIPlane.uuid);
+        aPlanesStr += formatKeyValue('Location', aPMIPlane.plane.location);
+        aPlanesStr += formatKeyValue('Direction', aPMIPlane.plane.direction);
+      }
+      aString += formatKeyValue('Planes', aPlanesStr);
+
+
+      return aString;
+    }
+
+  </script>
+
+</body>
+
+</html>

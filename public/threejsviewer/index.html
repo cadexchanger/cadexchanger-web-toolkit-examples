@@ -1,0 +1,219 @@
+<!--
+// ****************************************************************************
+//
+// Copyright (C) 2008-2014, Roman Lygin. All rights reserved.
+// Copyright (C) 2014-2022, CADEX. All rights reserved.
+//
+// This file is part of the CAD Exchanger software.
+//
+// You may use this file under the terms of the BSD license as follows:
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// * Redistributions of source code must retain the above copyright notice,
+//   this list of conditions and the following disclaimer.
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// ****************************************************************************
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>CAD Exchanger - Visualize CAD models with Three.js</title>
+
+  <meta name="description" content="Visualize CAD models with Three.js">
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+</head>
+
+<body>
+  
+  <div id="example-container">
+    <div id="file-viewer"></div>
+    <div id="model-selector">
+      <div>Select model:</div>
+      <select></select>
+    </div>
+  </div>
+
+  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
+  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
+  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+  <!-- 3D library (https://github.com/mrdoob/three.js/) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/build/three.min.js"></script>
+  <!-- Helper threejs libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/controls/OrbitControls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/WebGL.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/libs/stats.min.js"></script>
+  <!-- CadEx core library -->
+  <script src="/assets/web-toolkit/cadex.core.bundle.js"></script>
+  <!-- CadEx three.js helper library -->
+  <script src="/assets/web-toolkit/cadex.three.min.js"></script>
+
+  <!-- CadEx examples helper functions -->
+  <script src="/assets/js/helpers.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
+      }
+    }
+  </script>
+  
+  <!-- CadEx Viewer sample code -->
+  <script type="module">
+  
+    /* global cadex, WEBGL, THREE, Stats, initModelSelector, modelUrl, fetchFile */
+
+    // Initialize threejs scene (see also https://threejs.org/examples/?q=phon#webgl_materials_variations_phong)
+    if (WEBGL.isWebGLAvailable() === false) {
+      document.body.appendChild(WEBGL.getWebGLErrorMessage());
+    }
+
+    let aLastRenderRequestId = undefined;
+
+    const aScene = new THREE.Scene();
+    // Element to store sub-tree of objects associated with loaded model
+    const aModelNode = new THREE.Object3D();
+    aScene.add(aModelNode);
+
+    // Setup lights sources
+    aScene.add(new THREE.AmbientLight(0x222222));
+
+    let aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+    aDirectionalLight.position.set(1, 1, 0).normalize();
+    aScene.add(aDirectionalLight);
+
+    aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+    aDirectionalLight.position.set(-1, 1, 0).normalize();
+    aScene.add(aDirectionalLight);
+
+    aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+    aDirectionalLight.position.set(0, -1, 0).normalize();
+    aScene.add(aDirectionalLight);
+
+    // Set up WebGL context
+    const aRenderer = new THREE.WebGLRenderer({ antialias: true });
+    aRenderer.setPixelRatio(window.devicePixelRatio);
+    aRenderer.setSize(window.innerWidth, window.innerHeight);
+    aRenderer.setClearColor(new THREE.Color('white'));
+
+    const aContainer = document.getElementById('file-viewer');
+    aContainer.appendChild(aRenderer.domElement);
+
+    // Set up stats.js (https://github.com/mrdoob/stats.js/)
+    const aStats = new Stats();
+    aContainer.appendChild(aStats.dom);
+    aStats.dom.style.top = 'unset';
+    aStats.dom.style.bottom = '0px';
+
+    // Set up camera and mouse controller
+    const aCamera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 2000000);
+    aCamera.position.set(-1000, 1200, 3000);
+    const aControls = new THREE.OrbitControls(aCamera, aRenderer.domElement);
+    aControls.target.set(600, 0, 300);
+    aControls.addEventListener('change', scheduleRender);
+    aControls.update();
+
+    window.addEventListener('resize', () => {
+      aCamera.aspect = window.innerWidth / window.innerHeight;
+      aCamera.updateProjectionMatrix();
+      aRenderer.setSize(window.innerWidth, window.innerHeight);
+    }, false);
+
+    initModelSelector('Tisno.fbx', loadAndDisplayModel);
+
+    async function loadAndDisplayModel(theModelPath) {
+
+      // Remove previous model items
+      aModelNode.remove(...aModelNode.children);
+
+      try {
+        // Model uses multiple external data, so requires provider for it.
+        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+
+        // Create model
+        const aModel = new cadex.ModelData_Model();
+
+        // Load model by URL.
+        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
+        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+        // Convert ot three.js entities
+        const aConverterParameters = new cadex.ModelAlgo_ThreejsConverterParameters();
+        aConverterParameters.defaultAppearance = new cadex.ModelData_Appearance(new cadex.ModelData_ColorObject(0.5, 0.5, 0.5));
+        aConverterParameters.representationSelector = new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any);
+        const aThreejsConverter = new cadex.ModelAlgo_ThreejsConverter(aConverterParameters);
+        aModelNode.add(await aThreejsConverter.convertModel(aModel));
+
+        aCamera.position.set(-1000, 1000, 3000); // reset camera position
+        // Fit camera to scene
+        // For more details see https://discourse.threejs.org/t/camera-zoom-to-fit-object/936/3
+        const aSceneBBox = new THREE.Box3().setFromObject(aScene);
+        const aBBoxCenter = aSceneBBox.getCenter(new THREE.Vector3());
+        const size = aSceneBBox.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = aCamera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / 4 * Math.tan(fov * 2)) * 1.10;
+        aCamera.position.z = cameraZ;
+
+        const minZ = aSceneBBox.min.z;
+        const cameraToFarEdge = (minZ < 0) ? -minZ + cameraZ : cameraZ - minZ;
+
+        aCamera.far = cameraToFarEdge * 3;
+        aCamera.updateProjectionMatrix();
+
+        // set camera to rotate around center of loaded object
+        aControls.target = aBBoxCenter;
+        // prevent camera from zooming out far enough to create far plane cutoff
+        aControls.maxDistance = cameraToFarEdge * 2;
+        aControls.saveState();
+        aControls.update();
+      }
+      catch (theErr) {
+        console.log('Unable to load and display model: ', theErr);
+        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+      }
+    }
+
+    function scheduleRender() {
+      if (aLastRenderRequestId === undefined) {
+        aLastRenderRequestId = requestAnimationFrame(render);
+      }
+    }
+
+    function render() {
+      aLastRenderRequestId = undefined;
+      aStats.begin();
+      aRenderer.render(aScene, aCamera);
+      aStats.end();
+    }
+
+  </script>
+
+</body>
+
+</html>
