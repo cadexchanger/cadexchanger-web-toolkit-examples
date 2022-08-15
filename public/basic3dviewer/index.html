@@ -64,21 +64,11 @@
 
   <!-- CadEx examples helper functions -->
   <script src="/assets/js/helpers.js"></script>
-
-  <script type="importmap">
-    {
-      "imports": {
-        "@cadexchanger/web-toolkit": "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js"
-      }
-    }
-  </script>
   
   <!-- CadEx Viewer sample code -->
   <script type="module">
-      
+    import "../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js";    
     /* global cadex, initModelSelector, modelUrl, fetchFile */
-
-    import '@cadexchanger/web-toolkit';
 
     // Create model
     let aModel = new cadex.ModelData_Model();
