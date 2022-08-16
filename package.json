@@ -1,6 +1,6 @@
 {
   "name": "cadexchanger-web-toolkit-examples",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "CAD Exchanger Web Toolkit examples in JavaScript",
   "scripts": {
     "start": "node live-server.js"
