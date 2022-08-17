@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (August 17, 2022)
+
+* Remove unnecessary styles from examples.css.
+
 ## 1.0.2 (August 16, 2022)
 
 * Fix quotes and indents.
