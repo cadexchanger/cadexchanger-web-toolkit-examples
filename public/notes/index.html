@@ -35,188 +35,142 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Notes.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Notes</title>
 
-  <meta name="description" content="Notes.">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="notes.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="notes.css">
 </head>
 
 <body>
-  
-  <div id="example-container">
-    <div id="file-viewer"></div>
-    <div id="model-selector">
-      <div>Select model:</div>
-      <select></select>
-    </div>
-    <div id="help">
-      <div>Press <span><img src="/assets/images/mouse-right.png"></span> to show context menu</div>
-    </div>
-    <div id="notes-list">
-      <div style="margin: 1rem">Notes:</div>
-      <div id="notes-container">
-      </div>
-    </div>
-    <div id="context-menu" class="context-menu">
-      <div id="add-note-button">Add note</div>
+
+<div id="example-container">
+  <div id="file-viewer"></div>
+  <div id="model-selector"></div>
+  <div id="help">
+    <div>Press <span><img src="/assets/images/mouse-right.png"></span> to show context menu</div>
+  </div>
+  <div id="notes-list">
+    <div style="margin: 1rem">Notes:</div>
+    <div id="notes-container">
     </div>
   </div>
+  <div id="context-menu"></div>
+</div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
-  <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global cadex, initModelSelector, modelUrl, fetchFile */
-
-    // Create model
-    const aModel = new cadex.ModelData_Model();
-    // Create scene for visualization
-    const aScene = new cadex.ModelPrs_Scene();
-    // Setup global selection mode to allow shape selection
-    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
-
-    // Create viewport with default config and div element attach to.
-    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
-    // Attach viewport to scene to render content of it
-    aViewPort.attachToScene(aScene);
-
-    /** @type {cadex.ModelPrs_PickResult} */
-    let aLastPickResult;
-
-    // Subscribe to context menu event (right mouse click)
-    aViewPort.addEventListener('contextMenu', showContextMenu);
-    // Hide context menu on any viewport manipulation.
-    aViewPort.addEventListener('frameRendered', hideContextMenu);
-    // Add note to the viewer on "add" button click
-    document.getElementById('add-note-button').addEventListener('click', () => {
-      hideContextMenu();
-      createNote();
-    });
-
-    initModelSelector('round flush pin gage.prt', loadAndDisplayModel);
-
-    async function loadAndDisplayModel(theModelPath) {
-      // Clean up scene to display new model
-      aScene.removeAll(true);
-      aNotesManager.clean();
-
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
-
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
-        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
-        if (aLoadResult.hasBRepRep) {
-          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
-          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
-        }
-        aScene.globalDisplayMode = aDisplayMode;
-
-        // Convert added model roots into visualization objects and display it
-        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
-          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
-        });
-
-        // Move camera to position when the whole model is in sight
-        aViewPort.fitAll();
-      }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+  <script type="importmap">
+    {
+      "imports": {
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
       }
     }
+  </script>
+
+  <!-- Notes sample code -->
+  <script type="module">
+
+    import { fetchFile, initModelSelector, modelUrl, updateSceneSmoothly } from '../assets/js/helpers.mjs';
+    import cadex from '@cadexchanger/web-toolkit';
 
     /**
-     * Represents editable model note with 'active' state.
+     * @typedef CameraState
+     * @property {cadex.ModelData_Point} position
+     * @property {cadex.ModelData_Point} target
+     * @property {cadex.ModelData_Direction} up
      */
-    class Note extends cadex.ModelPrs_EventDispatcher {
+
+    /**
+     * Represents editable note with 'actives' state.
+     */
+    class Note extends cadex.ModelPrs_Annotation {
       /**
-       * @param {cadex.ModelData_PointLike} thePoint
-       * @param {cadex.ModelPrs_View3dObject} theView3dObj
-       * @param {cadex.ModelPrs_CameraState} theCameraState
+       * @param {cadex.ModelData_Point} thePoint
+       * @param {cadex.ModelPrs_SceneNode} theSceneNode
+       * @param {CameraState} theCameraState
        */
-      constructor(thePoint, theView3dObj, theCameraState) {
-        super();
+      constructor(thePoint, theSceneNode, theCameraState) {
 
         const aPinElement = document.createElement('div');
         const aCardElement = document.createElement('div');
 
-        this.annotation = new cadex.ModelPrs_Annotation({
+        super({
           position: thePoint,
-          view3dObject: theView3dObj,
-          camera: theCameraState,
+          sceneNode: theSceneNode,
           markerElement: aPinElement,
           labelElement: aCardElement,
           markerShown: true,
           labelShown: false,
         });
 
-        /** @type {string} */
-        this.label = '';
-        /** @type {boolean} */
-        this._edit = true;
-
-        aPinElement.classList.add('pin');
-        aCardElement.classList.add('card');
+        aPinElement.classList.add('note-pin');
+        aCardElement.classList.add('note-card');
 
         aPinElement.addEventListener('click', () => {
-          this.dispatchEvent({ type: 'markerClicked' });
+          this.dispatchEvent({ type: 'pinClicked' });
         });
 
-        this.active = true;
+        this.cameraState = theCameraState;
+
+        /** @type {string} */
+        this.label = '';
+        /**
+         * @private
+         * @type {boolean}
+         */
+        this._isEdit = true;
+
         this._updateCard();
       }
 
-      get edit() {
-        return this._edit;
+      get isEdit() {
+        return this._isEdit;
       }
 
-      set edit(theEdit) {
-        if (theEdit !== this._edit) {
-          this._edit = theEdit;
+      set isEdit(theEdit) {
+        if (theEdit !== this._isEdit) {
+          this._isEdit = theEdit;
           this._updateCard();
-          this.dispatchEvent({ type: 'editChanged', value: theEdit });
+          this.dispatchEvent({ 'type': 'isEditChanged' });
         }
       }
 
-      get active() {
-        return this.labelShown;
+      get isActive() {
+        return this.isLabelShown;
       }
 
-      set active(theActive) {
-        if (theActive !== this.annotation.labelShown) {
-          this.annotation.labelShown = theActive;
-          this.annotation.markerElement.classList.toggle('active', theActive);
-          this.dispatchEvent({ type: 'activeChanged', value: theActive });
+      set isActive(theActive) {
+        if (theActive !== this.isLabelShown) {
+          this.isLabelShown = theActive;
+          this.markerElement.classList.toggle('active', theActive);
+          this.dispatchEvent({ type: 'isActiveChanged' });
         }
       }
 
+      /**
+       * @private
+       */
       _updateCard() {
-        const aLabelElement = this.annotation.labelElement;
-        aLabelElement.classList.toggle('editing', this._edit);
-        if (this._edit) {
+        const aLabelElement = /** @type {HTMLElement} */(this.labelElement);
+        aLabelElement.classList.toggle('editing', this._isEdit);
+        if (this._isEdit) {
           aLabelElement.textContent = '';
 
           const aCardInner = document.createElement('div');
-          aCardInner.classList.add('card__inner');
+          aCardInner.classList.add('note-card__inner');
           aLabelElement.appendChild(aCardInner);
 
           const anInput = document.createElement('input');
@@ -227,10 +181,10 @@
 
           const saveEdit = () => {
             this.label = anInput.value;
-            this.edit = false;
+            this.isEdit = false;
           };
           const cancelEdit = () => {
-            this.edit = false;
+            this.isEdit = false;
           };
 
           const aSaveButton = document.createElement('img');
@@ -263,187 +217,304 @@
     }
 
     /**
-     * Represents collection of notes with no more than one active note.
+     * Represents collection of notes with one active note.
      */
-    class NoteManager extends cadex.ModelPrs_EventDispatcher {
-      /**
-       * @param {cadex.ModelPrs_ViewPort} theViewport
-       */
-      constructor(theViewport) {
+    class NotesManager extends cadex.ModelPrs_MarkersManager {
+      constructor() {
         super();
-
-        this.viewport = theViewport;
-
-        /** @type {Set<Note>} */
-        this.notes = new Set();
-
-        /** @type {Note} */
+        this.listOfNotesDom = /** @type {HTMLElement} */(document.getElementById('notes-container'));
+        /** @type {Note|null} */
+        this.temporaryNode = null;
+        /** @type {Note|null} */
         this.activeNote = null;
 
-        // Hide active note on any viewport manipulation (e.g. camera rotation)
-        this.viewport.addEventListener('frameRendered', () => {
-          this.activateNote(null);
+        this.onNotePinClicked = this.onNotePinClicked.bind(this);
+        this.onNoteCardOutsideClicked = this.onNoteCardOutsideClicked.bind(this);
+      }
+
+      /**
+       * @param {cadex.ModelData_Point} thePoint
+       * @param {cadex.ModelPrs_SceneNode} theSceneNode
+       */
+      addTemporaryNote(thePoint, theSceneNode) {
+        if (!this.viewport) {
+          return;
+        }
+
+        this.activateNote(null);
+
+        const aCamera = this.viewport.camera;
+        const aTemporaryNode = new Note(thePoint, theSceneNode, {
+          position: aCamera.position.clone(),
+          target: aCamera.target.clone(),
+          up: aCamera.up.clone(),
         });
-      }
 
-      /**
-       * @param {Note} theNote
-       */
-      addNote(theNote) {
-        if (this.notes.has(theNote)) {
-          return;
-        }
-        this.notes.add(theNote);
-        this.viewport.addMarker(theNote.annotation);
+        this.addMarker(aTemporaryNode);
+        this.activateNote(aTemporaryNode);
 
-        theNote.onMarkerClicked = () => {
-          this.activateNote(theNote);
+        const onTemporaryNoteChanged = () => {
+          this.temporaryNode = null;
+
+          aTemporaryNode.removeEventListener('isEditChanged', onTemporaryNoteChanged);
+          aTemporaryNode.removeEventListener('isActiveChanged', onTemporaryNoteChanged);
+
+          if (aTemporaryNode.label) {
+            this.addNote(aTemporaryNode);
+            this.activateNote(aTemporaryNode);
+          } else {
+            aTemporaryNode.isActive = false;
+            this.removeMarker(aTemporaryNode);
+          }
         };
-        theNote.addEventListener('markerClicked', theNote.onMarkerClicked);
 
-        this.dispatchEvent({ type: 'noteAdded', note: theNote });
+        aTemporaryNode.addEventListener('isEditChanged', onTemporaryNoteChanged);
+        aTemporaryNode.addEventListener('isActiveChanged', onTemporaryNoteChanged);
+
+        this.temporaryNode = aTemporaryNode;
       }
 
       /**
-       * @param {Note} theNote
-       */
-      removeNote(theNote) {
-        if (!this.notes.has(theNote)) {
-          return;
-        }
-        this.notes.delete(theNote);
-        this.viewport.removeMarker(theNote.annotation);
-
-        theNote.removeEventListener('markerClicked', theNote.onMarkerClicked);
-
-        this.dispatchEvent({ type: 'noteRemoved', note: theNote });
-      }
-
-      /**
-       * @param {Note} theNote
+       * @param {Note|null} theNote
        */
       async activateNote(theNote) {
         if (this.activeNote === theNote) {
           return;
         }
         if (this.activeNote) {
-          this.activeNote.active = false;
+          this.activeNote.isActive = false;
           this.activeNote = null;
-          this.dispatchEvent({ type: 'noteDeactivated', note: this.activeNote });
         }
         if (!theNote) {
+          document.removeEventListener('pointerdown', this.onNoteCardOutsideClicked);
           return;
         }
-        // wait while animation finish, then show label
-        if (theNote.annotation.camera) {
-          await this.viewport.changeCamera(theNote.annotation.camera);
+        if (theNote.cameraState && this.viewport) {
+          this.viewport.camera.set(theNote.cameraState.position, theNote.cameraState.target, theNote.cameraState.up);
         }
-        theNote.active = true;
+        theNote.isActive = true;
         this.activeNote = theNote;
-        this.dispatchEvent({ type: 'noteActivated', note: this.activeNote });
+        document.addEventListener('pointerdown', this.onNoteCardOutsideClicked);
       }
 
-      clean() {
-        for (let aNote of this.notes) {
-          this.removeNote(aNote);
+      /**
+       * @param {Note} theNote
+       */
+      addNote(theNote) {
+        if (!this.containsMarker(theNote)) {
+          this.addMarker(theNote);
+        }
+
+        theNote.addEventListener('pinClicked', this.onNotePinClicked);
+
+        this.updateNotesList();
+      }
+
+      /**
+       * @param {Note} theNote
+       */
+      removeNote(theNote) {
+        if (!this.containsMarker(theNote)) {
+          return;
+        }
+        this.removeMarker(theNote);
+
+        theNote.removeEventListener('pinClicked', this.onNotePinClicked);
+
+        this.updateNotesList();
+      }
+
+      removeAllMarkers() {
+        for (let aMarker of this.markers()) {
+          this.removeNote(/** @type {Note}*/(aMarker));
+        }
+      }
+
+      /**
+       * @param {cadex.ModelPrs_Event<"pinClicked", Note>} theEvent
+       */
+      onNotePinClicked(theEvent) {
+        this.activateNote(theEvent.target);
+      }
+
+      /**
+       * @param {PointerEvent} theEvent
+       */
+      onNoteCardOutsideClicked(theEvent) {
+        if (this.activeNote && /** @type {HTMLElement|null} */(theEvent?.target)?.closest('.note-card') !== this.activeNote.labelElement) {
+          this.activateNote(null);
+        }
+      }
+
+      /**
+       * Updates list with notes
+       */
+      updateNotesList() {
+        // Just for demo purpose: clean up all content and re-generate note-cards
+        this.listOfNotesDom.innerHTML = '';
+
+        for (const aMarker of this.markers()) {
+          const aNote = /** @type {Note} */(aMarker);
+          const aNoteListElement = document.createElement('div');
+          aNoteListElement.classList.add('note-card');
+          aNoteListElement.style.display = 'flex';
+
+          const aLabelElement = document.createElement('div');
+          aLabelElement.innerHTML = aNote.label;
+          aLabelElement.classList.add('note-label');
+          aNoteListElement.appendChild(aLabelElement);
+
+          const aDeleteButton = document.createElement('img');
+          aDeleteButton.src = '/assets/images/delete.svg';
+          aDeleteButton.addEventListener('click', (theEvent) => {
+            theEvent.stopPropagation();
+            this.removeNote(aNote);
+          });
+          aNoteListElement.appendChild(aDeleteButton);
+
+          aNoteListElement.addEventListener('click', () => {
+            this.activateNote(aNote);
+          });
+
+          this.listOfNotesDom.appendChild(aNoteListElement);
         }
       }
     }
 
-    // Create notes manager attached to the viewport
-    const aNotesManager = new NoteManager(aViewPort);
-    // Regenerate notes list
-    aNotesManager.addEventListener('noteAdded', updateNotesList);
-    aNotesManager.addEventListener('noteRemoved', updateNotesList);
+    class ContextMenuHandler extends cadex.ModelPrs_ContextMenuHandler {
+      /**
+       * @param {cadex.ModelPrs_Scene} theScene
+       * @param {NotesManager} theNotesManager
+       */
+      constructor(theScene, theNotesManager) {
+        super();
+        this.scene = theScene;
+        this.notesManager = theNotesManager;
 
-    /**
-     * @param {cadex.ModelPrs_ViewPort.ContextMenuEvent} theEvent
-      */
-    function showContextMenu(theEvent) {
-      const aContextMenu = document.getElementById('context-menu');
-      aContextMenu.style.display = 'block';
-      aContextMenu.style.left = `${theEvent.point.x}px`;
-      aContextMenu.style.top = `${theEvent.point.y}px`;
+        this.contextMenuElement = /** @type {HTMLElement}*/(document.getElementById('context-menu'));
 
-      // Save pick result to global variable to reuse it on note creation
-      aLastPickResult = aScene.pick(theEvent.ray);
-      // Enable 'add note' button only when view3d object has been clicked
-      document.getElementById('add-note-button').disabled = !aLastPickResult;
-    }
+        this.addNoteButton = document.createElement('div');
+        this.addNoteButton.id = 'add-note-button';
+        this.addNoteButton.textContent = 'Add note';
+        this.contextMenuElement.appendChild(this.addNoteButton);
 
-    function hideContextMenu() {
-      const aContextMenu = document.getElementById('context-menu');
-      aContextMenu.style.display = '';
-    }
+        /** @type {{node: cadex.ModelPrs_SceneNode, point: cadex.ModelData_Point} | null} */
+        this.lastContextMenuState = null;
 
-    /**
-     * Creates temporary note, display it in viewer, save to manager when editing is finished.
-     */
-    function createNote() {
-      // Deactivate active note
-      aNotesManager.activateNote(null);
+        this.addNoteButton.addEventListener('click', () => {
+          this.hideContextMenu();
 
-      // Create temporary note and display in viewer
-      const aNewNote = new Note(aLastPickResult.point, aLastPickResult.object, aViewPort.getCameraProperties());
-      aNewNote.active = true;
-      aViewPort.addMarker(aNewNote.annotation);
+          if (!this.lastContextMenuState) {
+            this.notesManager.activateNote(null);
+            return;
+          }
 
-      let onViewportChanged;
+          // Create temporary note and display it in viewer
+          this.notesManager.addTemporaryNote(this.lastContextMenuState.point, this.lastContextMenuState.node);
+        });
 
-      // Save temporary note to notes manager if label is not empty
-      const onEditChanged = () => {
-        aNewNote.removeEventListener('editChanged', onEditChanged);
-        aViewPort.removeEventListener('frameRendered', onViewportChanged);
-        if (aNewNote.label) {
-          aNotesManager.addNote(aNewNote);
-          aNotesManager.activateNote(aNewNote);
+        // Hide mouse menu by any mouse press
+        document.addEventListener('pointerdown', (theEvent) => {
+          if (/** @type {HTMLElement|null} */(theEvent?.target)?.closest('.context-menu')) {
+            this.hideContextMenu();
+          }
+        });
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PointerInputEvent} theEvent
+       */
+      contextMenu(theEvent) {
+        const aPosition = theEvent.point.position;
+        const aPickResult = this.scene.selectionManager.pickFromViewport(aPosition.x, aPosition.y, theEvent.viewport);
+        if (aPickResult && aPickResult.node) {
+          this.lastContextMenuState = {
+            point: aPickResult.point,
+            node: aPickResult.node,
+          };
+          this.addNoteButton.classList.remove('disabled');
         } else {
-          aViewPort.removeMarker(aNewNote.annotation);
+          this.lastContextMenuState = null;
+          this.addNoteButton.classList.add('disabled');
         }
-      };
+        this.contextMenuElement.style.display = 'block';
+        this.contextMenuElement.style.left = `${aPosition.x}px`;
+        this.contextMenuElement.style.top = `${aPosition.y}px`;
+      }
 
-      // Remove temporary note when viewer has been changed (e.g. rotated by input)
-      onViewportChanged = () => {
-        aNewNote.label = '';
-        onEditChanged();
-      };
-
-      aNewNote.addEventListener('editChanged', onEditChanged);
-      aViewPort.addEventListener('frameRendered', onViewportChanged);
+      hideContextMenu() {
+        this.contextMenuElement.style.display = '';
+      }
     }
 
-    /**
-     * Updates list with notes
-     */
-    function updateNotesList() {
-      const aNotesContainer = document.getElementById('notes-container');
-      // Just for demo purpose: clean up all content and re-generate cards
-      aNotesContainer.innerHTML = '';
-      aNotesManager.notes.forEach((theNote) => {
-        const aNoteListElement = document.createElement('div');
-        aNoteListElement.classList.add('card');
-        aNoteListElement.style.display = 'flex';
+    class NotesExample {
+      constructor() {
+        // The model
+        this.model = new cadex.ModelData_Model();
+        // The scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
 
-        const aLabelElement = document.createElement('div');
-        aLabelElement.innerHTML = theNote.label;
-        aLabelElement.classList.add('note-label');
-        aNoteListElement.appendChild(aLabelElement);
+        // The viewport for visualization. Initializing with default config and element attach to.
+        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
+        // Attach viewport to scene to render content of
+        this.viewport.attachToScene(this.scene);
 
-        const aDeleteButton = document.createElement('img');
-        aDeleteButton.src = '/assets/images/delete.svg';
-        aDeleteButton.addEventListener('click', (theEvent) => {
-          aNotesManager.removeNote(theNote);
-          theEvent.stopPropagation();
-        });
-        aNoteListElement.appendChild(aDeleteButton);
+        // Use custom marker manager with binding to UI elements
+        this.notesManager = new NotesManager();
+        this.viewport.markerManager = this.notesManager;
 
-        aNoteListElement.addEventListener('click', () => {
-          aNotesManager.activateNote(theNote);
-        });
+        // Enables context menu handling
+        const aContextMenuHandler = new ContextMenuHandler(this.scene, this.notesManager);
+        this.viewport.inputManager.pushInputHandler(aContextMenuHandler);
+      }
 
-        aNotesContainer.appendChild(aNoteListElement);
-      });
+      /**
+       * @param {string} theModelPath
+       */
+      async loadAndDisplayModel(theModelPath) {
+        try {
+          // Clean up scene to display new model
+          this.scene.clear();
+          await this.scene.update();
+
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          const aSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          const aSceneNode = await aSceneNodeFactory.createGraphFromModel(this.model, aRepMask);
+          if (!aSceneNode) {
+            throw new Error('Unable to create scene node from model.');
+          }
+          aSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+          aSceneNode.selectionMode = cadex.ModelPrs_SelectionMode.Body | cadex.ModelPrs_SelectionMode.PolyShape;
+
+          this.scene.addRoot(aSceneNode);
+
+          // Update scene to apply changes.
+          await updateSceneSmoothly(this.scene, this.viewport);
+
+          // Finally move camera to position when the whole model is in sight
+          this.viewport.fitAll();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
+        }
+      }
     }
+
+    const aNotesExample = new NotesExample();
+
+    initModelSelector('round flush pin gage.prt', aNotesExample.loadAndDisplayModel.bind(aNotesExample));
 
   </script>
 

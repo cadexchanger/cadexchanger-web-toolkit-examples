@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.15.0 (November, 2022)
+
+* Migrated to CAD Exchagner Web Toolktit 3.15.0.
+* Versioning now is aligned with CAD Exchanger SDK.
+
 ## 1.0.3 (August 17, 2022)
 
 * Remove unnecessary styles from examples.css.

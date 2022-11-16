@@ -35,30 +35,30 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Exploded View">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Exploded View</title>
 
-  <meta name="description" content="Exploded View">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="exploder.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="exploder.css">
 </head>
 
 <body>
-  
+
   <div id="example-container">
     <div id="file-viewer"></div>
 
     <div id="side-panel">
 
-      <div id="model-selector">
-        <div>Select model:</div>
-        <select></select>
-      </div>
+      <div id="model-selector"></div>
 
       <div>Exploder value:</div>
       <div id="exploder-slider">
@@ -74,92 +74,108 @@
     </div>
   </div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
+  <script type="importmap">
+    {
+      "imports": {
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
+      }
+    }
+  </script>
+
+  <!-- Model Exploder sample code -->
   <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global cadex, initModelSelector, modelUrl, fetchFile */
 
-    // Create model
-    let aModel = new cadex.ModelData_Model();
-    // Create scene for visualization
-    const aScene = new cadex.ModelPrs_Scene();
-    // Setup global selection mode to allow shape selection
-    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+    import { fetchFile, initModelSelector, modelUrl, updateSceneSmoothly } from '../assets/js/helpers.mjs';
+    import cadex from '@cadexchanger/web-toolkit';
 
-    // Create viewport with default config and div element attach to.
-    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
-    // Attach viewport to scene to render content of it
-    aViewPort.attachToScene(aScene);
+    class ExploderExample {
+      constructor() {
+        // The model
+        this.model = new cadex.ModelData_Model();
+        // The scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
 
-    initModelSelector('Double WishBone Suspension.CATProduct', loadAndDisplayModel);
+        // The viewport for visualization. Initializing with default config and element attach to.
+        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
+        // Attach viewport to scene to render content of
+        this.viewport.attachToScene(this.scene);
 
-    initExploderSlider();
+        /** @type {HTMLButtonElement} */(document.getElementById('exploder-fit-all-button')).onclick = () => {
+          this.viewport.fitAll();
+        };
 
-    async function loadAndDisplayModel(theModelPath) {
-
-      // Clean up scene to display new model
-      aScene.removeAll(true);
-
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
-
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
-        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
-        if (aLoadResult.hasBRepRep) {
-          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
-          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
-        }
-
-        aScene.globalDisplayMode = aDisplayMode;
-
-        // Convert added model roots into visualization objects and display it
-        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
-          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
-        });
-
-        // Move camera to position when the whole model is in sight
-        aViewPort.fitAll();
-      }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+        this.initExploderSlider();
       }
 
-    }
+      /**
+       * @param {string} theModelPath
+       */
+      async loadAndDisplayModel(theModelPath) {
+        try {
+          // Clean up scene to display new model
+          this.scene.clear();
+          await this.scene.update();
 
-    function initExploderSlider() {
-      /** @type {HTMLSelectElement} */
-      const anExploderSlider = document.querySelector('#exploder-slider>input');
-      const anExploderValue = document.getElementById('exploder-value');
-      const aExploderAutoFitAllCheckbox = document.getElementById('exploder-fit-all-auto-checkbox');
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
 
-      anExploderSlider.oninput = () => {
-        aViewPort.exploder.value = parseInt(anExploderSlider.value) / 100;
-        anExploderValue.textContent = `${anExploderSlider.value}%`;
-      };
-      anExploderSlider.onchange = () => {
-        if (aExploderAutoFitAllCheckbox.checked) {
-          aViewPort.fitAll();
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          const aSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          const aSceneNode = await aSceneNodeFactory.createGraphFromModel(this.model, aRepMask);
+          if (!aSceneNode) {
+            throw new Error('Unable to create scene node from model.');
+          }
+          aSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+          aSceneNode.selectionMode = cadex.ModelPrs_SelectionMode.Body | cadex.ModelPrs_SelectionMode.PolyShape;
+
+          this.scene.addRoot(aSceneNode);
+
+          // Update scene to apply changes.
+          await updateSceneSmoothly(this.scene, this.viewport);
+
+          // Finally move camera to position when the whole model is in sight
+          this.viewport.fitAll();
         }
-      };
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
+        }
+      }
+
+      initExploderSlider() {
+        const anExploderSlider = /** @type {HTMLSelectElement} */(document.querySelector('#exploder-slider>input'));
+        const anExploderValue = /** @type {HTMLElement} */(document.getElementById('exploder-value'));
+        const aExploderAutoFitAllCheckbox = /** @type {HTMLInputElement} */(document.getElementById('exploder-fit-all-auto-checkbox'));
+
+        anExploderSlider.oninput = () => {
+          const aSliderValue = parseInt(anExploderSlider.value);
+          this.viewport.exploder.isActive = aSliderValue !== 0;
+          this.viewport.exploder.value =  aSliderValue / 100;
+          anExploderValue.textContent = `${anExploderSlider.value}%`;
+        };
+        anExploderSlider.onchange = () => {
+          if (aExploderAutoFitAllCheckbox.checked) {
+            this.viewport.fitAll();
+          }
+        };
+      }
     }
 
-    document.getElementById('exploder-fit-all-button').onclick = () => {
-      aViewPort.fitAll();
-    };
+    const anExploderExample = new ExploderExample();
+
+    initModelSelector('Double WishBone Suspension.CATProduct', anExploderExample.loadAndDisplayModel.bind(anExploderExample));
 
   </script>
 

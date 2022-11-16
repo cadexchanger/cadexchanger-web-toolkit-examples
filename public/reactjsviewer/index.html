@@ -35,39 +35,56 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Visualize CAD models in React Application.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - VVisualize CAD models in React Application</title>
 
-  <meta name="description" content="Visualize CAD models in React Application.">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="reactjsviewer.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="reactjsviewer.css">
 </head>
 
 <body>
-  
+
   <div id="root"></div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-  <!-- 3rd party libraries -->
-  <!-- React.js -->
-  <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
+  <script type="importmap">
+    {
+      "scopes": {
+        "https://ga.jspm.io/": {
+          "process": "https://ga.jspm.io/npm:@jspm/core@2.0.0-beta.27/nodelibs/browser/process.js",
+          "scheduler": "https://ga.jspm.io/npm:scheduler@0.23.0/dev.index.js"
+        }
+      },
+      "imports": {
+        "react": "https://ga.jspm.io/npm:react@18.2.0/dev.index.js",
+        "react-dom": "https://ga.jspm.io/npm:react-dom@18.2.0/dev.index.js",
+        "react-dom/client": "https://ga.jspm.io/npm:react-dom@18.2.0/dev.client.js",
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
+      }
+    }
+  </script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
+  <!-- React Viewer sample code -->
   <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global React, ReactDOM, cadex, getModelList, modelUrl, fetchFile */
+
+    import { fetchFile, getModelList, modelUrl, updateSceneSmoothly } from '../assets/js/helpers.mjs';
+    import cadex from '@cadexchanger/web-toolkit';
+
+    import React from 'react';
+    import { createRoot } from 'react-dom/client';
 
     const e = React.createElement;
 
@@ -85,11 +102,9 @@
         this.model = new cadex.ModelData_Model();
         // Create scene for visualization
         this.scene = new cadex.ModelPrs_Scene();
-        // Setup global selection mode to allow shape selection
-        this.scene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
 
         // Create viewport with default config and div element attach to.
-        this.viewPort = new cadex.ModelPrs_ViewPort({}, this.container);
+        this.viewPort = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(this.container));
         // Attach viewport to scene to render content of it
         this.viewPort.attachToScene(this.scene);
       }
@@ -101,45 +116,60 @@
       }
 
       componentWillUnmount() {
-        this.viewPort.detachFromScene(this.scene);
-        this.scene.removeAll(true);
+        /** @type {cadex.ModelPrs_ViewPort} */(this.viewPort).detachFromScene();
+        const aScene = /** @type {cadex.ModelPrs_Scene} */(this.scene);
+        aScene.clear();
+        aScene.update();
         this.scene = null;
         this.model = null;
         this.viewPort = null;
       }
 
+      /**
+       * @param {string} theModelPath
+       */
       async loadAndDisplayModel(theModelPath) {
-        // Clean up scene to display new model
-        this.scene.removeAll(true);
-
         try {
-          // Model uses multiple external data, so requires provider for it.
-          const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+          const aScene = /** @type {cadex.ModelPrs_Scene} */(this.scene);
+          const aModel = /** @type {cadex.ModelData_Model} */(this.model);
+          const aViewPort = /** @type {cadex.ModelPrs_ViewPort} */(this.viewPort);
+
+          // Clean up scene to display new model
+          aScene.clear();
+          await aScene.update();
+
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
 
           // Load model by URL.
-          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
           console.log(`${theModelPath} is loaded\n`, aLoadResult);
 
-          let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
-          let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
-          if (aLoadResult.hasBRepRep) {
-            aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
-            aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
+          // Create visualization graph for model.
+          const aSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          const aSceneNode = await aSceneNodeFactory.createGraphFromModel(aModel, aRepMask);
+          if (!aSceneNode) {
+            throw new Error('Unable to create scene node from model.');
           }
-          this.scene.globalDisplayMode = aDisplayMode;
+          aSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+          aSceneNode.selectionMode = cadex.ModelPrs_SelectionMode.Body | cadex.ModelPrs_SelectionMode.PolyShape;
 
-          // Convert added model roots into visualization objects and display it
-          await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-            displayer: new cadex.ModelPrs_SceneDisplayer(this.scene),
-            repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
-          });
+          aScene.addRoot(aSceneNode);
 
-          // Move camera to position when the whole model is in sight
-          this.viewPort.fitAll();
+          // Update scene to apply changes.
+          await updateSceneSmoothly(aScene, aViewPort);
+
+          // Finally move camera to position when the whole model is in sight
+          aViewPort.fitAll();
         }
         catch (theErr) {
-          console.log('Unable to load and display model: ', theErr);
-          alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+          console.error('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
         }
 
       }
@@ -156,8 +186,8 @@
       constructor(props) {
         super(props);
         this.state = {
-          models: [],
-          currentModel: null
+          models: /** @type {Array<*>}*/([]),
+          currentModel: /** @type {*} */(null)
         };
         this.onModelSelectorChanged = this.onModelSelectorChanged.bind(this);
 
@@ -181,7 +211,7 @@
       render() {
         const options = this.state.models.map(model => {
           // JSX
-          // return <option key="{theModel.name}">{theModel.name}</option>;
+          // return <option key="{model.name}">{model.name}</option>;
           return React.createElement('option', { key: model.name }, model.name);
         });
 
@@ -213,8 +243,9 @@
       }
     }
 
-    const domContainer = document.querySelector('#root');
-    ReactDOM.render(e(CadExReactViewerApp), domContainer);
+    const domContainer = /** @type {HTMLElement} */(document.getElementById('root'));
+    const root = createRoot(domContainer);
+    root.render(e(CadExReactViewerApp));
 
   </script>
 

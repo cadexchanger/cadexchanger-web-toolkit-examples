@@ -44,10 +44,11 @@
 }
 
 #file-pmi-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 300px;
   max-width: 30%;
-  height: 100%;
-  overflow: auto;
   border-left: 1px solid #aaaaaa;
 }
 
@@ -57,7 +58,10 @@
 
 #file-pmi-saved-views-select {
   min-width: 150px;
-  margin-left: 0.5rem;
+}
+
+#file-pmi-elements {
+  overflow: auto;
 }
 
 .icon-file {

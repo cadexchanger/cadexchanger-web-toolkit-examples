@@ -96,7 +96,6 @@ body {
 }
 
 #model-selector {
-  display: none;
 
   width: 20rem;
   position: absolute;
@@ -104,8 +103,14 @@ body {
   top: 1rem;
 }
 
-.show {
-  display: block !important;
+#progress {
+  width: 20rem;
+  max-width: 80%;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 1rem;
+  visibility: hidden;
 }
 
 select {
@@ -152,6 +157,42 @@ select[size]:not([size="1"]) {
   background-image: none;
 }
 
+/* button {
+  display: inline-block;
+  font-weight: 400;
+  text-align: center;
+  vertical-align: middle;
+  color: #212529;
+  background-color: #f8f9fa;
+  border-color: #f8f9fa;
+  -webkit-appearance: button;
+  border-style: none;
+  padding: 0.375rem 0.75rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  border-radius: 0.25rem;
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+button:hover {
+  color: #212529;
+  background-color: #e2e6ea;
+  border-color: #dae0e5;
+  box-shadow: 0 0 0 0.2rem rgba(216, 217, 219, 0.5);
+  text-decoration: none;
+}
+
+button:focus {
+  color: #212529;
+  background-color: #dae0e5;
+  border-color: #d3d9df;
+  box-shadow: 0 0 0 0.2rem rgba(216, 217, 219, 0.5);
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+} */
+
 button {
   display: inline-block;
 
@@ -165,7 +206,7 @@ button {
   -ms-user-select: none;
   user-select: none;
 
-  background-color: #FFFFFF;
+  background-color: white;
   border: 1px solid #335eea;
   border-radius: 6px;
 
@@ -235,6 +276,11 @@ button:disabled {
   background-color: white;
   border: 1px solid white;
 }
+
+/* .modal-body {
+  display: flex;
+  flex-direction: column;
+} */
 
 .close:hover,
 .close:focus {
@@ -364,4 +410,25 @@ input[type="range"]::-ms-fill-upper {
   margin-right: 15px;
   background-color: #dee2e6;
   border-radius: 1rem;
+}
+
+.progress {
+  display: flex;
+  height: 1rem;
+  overflow: hidden;
+  font-size: .75rem;
+  background-color: #e9ecef;
+  border-radius: 0.25rem;
+}
+
+.progress-bar {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: #fff;
+  text-align: center;
+  background-color: #007bff;
+  transition: width .6s ease;
 }

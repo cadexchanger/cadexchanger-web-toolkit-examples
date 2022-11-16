@@ -35,25 +35,31 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Visualize Graphical PMI.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Visualize Graphical PMI</title>
 
-  <meta name="description" content="Visualize Graphical PMI.">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="pmiviewer.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="pmiviewer.css">
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree/dist/themes/default/style.min.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
 </head>
 
 <body>
-  
+
   <div id="example-container">
     <div id="file-scenegraph-container"></div>
-    <div id="file-viewer"></div>
+    <div id="file-viewer">
+      <div id="model-selector"></div>
+    </div>
     <div id="file-pmi-container">
       <div id="file-pmi-saved-views">
         <span>Select a view:</span>
@@ -63,340 +69,574 @@
     </div>
   </div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
-
-  <!-- Helper libraries -->
+  <!-- Tree helper libraries -->
   <!-- Required by jstree (https://jquery.com/) -->
   <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
   <!-- jstree library is used to simplify create tree with html (https://www.jstree.com) -->
-  <script src="https://cdn.jsdelivr.net/npm/jstree/dist/jstree.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstree/dist/jstree.js"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
+      }
+    }
+  </script>
+
+  <!-- PMI Viewer sample code -->
   <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global cadex, $, initModelSelector, modelUrl, fetchFile */
 
-    // Global model
-    const aModel = new cadex.ModelData_Model();
-    // Global scene for visualization
-    const aScene = new cadex.ModelPrs_Scene();
-    // Set global display mode to shaded with boundaries
-    aScene.globalDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
-    // Set global selection mode to shape
-    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
+    /* eslint-disable require-atomic-updates */
 
-    const aFileViewerElement = document.getElementById('file-viewer');
-    // Global viewport of visualization
-    // Initializing with empty config and element attach to.
-    const aViewPort = new cadex.ModelPrs_ViewPort({}, aFileViewerElement);
-    // Attach viewport to scene to render content of
-    aViewPort.attachToScene(aScene);
+    import { fetchFile, initModelSelector, modelUrl, updateSceneSmoothly } from '../assets/js/helpers.mjs';
 
-    const aPMIFactory = new cadex.ModelPrs_PMIFactory();
+    import cadex from '@cadexchanger/web-toolkit';
 
-    const aJSTreeConfig = {
-      core: {
-        multiple: false,
-        check_callback: true,
-        themes: {
-          name: null, //'default',
-          dots: true,
-        }
-      },
-      types: {
-        file: {
-          icon: 'icon-file'
-        },
-        assembly: {
-          icon: 'icon-assembly'
-        },
-        instance: {
-          icon: 'icon-instance'
-        },
-        part: {
-          icon: 'icon-part'
-        },
-        pmi: {
-          icon: 'icon-pmi'
-        },
-        'pmi-element': {
-          icon: 'icon-pmi-element'
-        }
-      },
-      plugins: ['wholerow', 'types']
-    };
+    /* global $ */
 
-    // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
-    $('#file-scenegraph-container').jstree(aJSTreeConfig)
-      .on('select_node.jstree', async (theEvent, theData) => {
-        const aPMITree = $('#file-pmi-elements').jstree(true);
-        const aTreeRoot = aPMITree.get_node('#');
-        // Clean up current PMI graphical elements tree
-        aTreeRoot.children.forEach(theRoot => aPMITree.delete_node(theRoot));
 
-        const aNodeData = theData.node.data;
-        /** @type {cadex.ModelData_SceneGraphElement} */
-        const aSGE = aNodeData && aNodeData.ancestors && aNodeData.ancestors[aNodeData.ancestors.length - 1];
-        if (aSGE && aSGE.pmi) {
+    /**
+     * Interface for additional 'treeId' property.
+     * @typedef CustomSGESceneNode
+     * @property {string} [sgeTreeId]
+     */
 
-          if (!aNodeData.pmiView3dObj) {
-            aNodeData.pmiView3dObj = await aPMIFactory.create(aSGE.pmi, aNodeData.ancestors);
-          }
-          const aView3Objs = aNodeData.pmiView3dObj;
+    /**
+     * Interface for additional properties of PMI scene nodes.
+     * @typedef CustomPMISceneNode
+     * @property {string} [pmiTreeId]
+     * @property {string} name
+     * @property {string} type
+     */
 
-          const aSGNode = aPMITree.create_node(aTreeRoot, {
-            text: aSGE.name,
-            type: theData.node.type,
-            data: { sge: aSGE }
+    /**
+     * @template T
+     * @typedef {Array<{groupId: T, nodes: Array<cadex.ModelPrs_SceneNode & CustomPMISceneNode>}>} GroupedPMIData
+     */
+
+    /**
+     * @typedef {Object} PMISceneData
+     * @property {Array<cadex.ModelPrs_SceneNode & CustomPMISceneNode>} sceneNodes
+     * @property {GroupedPMIData<string>} sceneNodesByType
+     * @property {GroupedPMIData<cadex.ModelData_PMISavedView>} sceneNodesBySavedViews
+     */
+
+    /**
+     * @typedef JstreeSGENodeData
+     * @property {cadex.ModelData_SceneGraphElement} sge
+     * @property {cadex.ModelPrs_SceneNode & CustomSGESceneNode} sceneNode
+     * @property {cadex.ModelPrs_SceneNode & CustomSGESceneNode} [representationSceneNode]
+     * @property {cadex.ModelData_PMITable | null} pmiTable
+     * @property {PMISceneData} [pmiSceneData]
+     */
+
+    /**
+     * @typedef JstreeSGENode
+     * @property {string} text
+     * @property {string} type
+     * @property {JstreeSGENodeData} data
+     */
+
+    class PMITreeManager {
+      /**
+       * @param {cadex.ModelPrs_Scene} theScene
+       * @param {cadex.ModelPrs_ViewPort} theViewport
+       * @param {any} theJsTreeConfig
+       */
+      constructor(theScene, theViewport, theJsTreeConfig) {
+        this.scene = theScene;
+        this.viewport = theViewport;
+
+        // Initialize jsTree library used for visualizing tree structure (see https://www.jstree.com/)
+        $('#file-pmi-elements').jstree(theJsTreeConfig)
+          .on('select_node.jstree', async (_theEvent, theData) => {
+            const aNodeData = theData.node?.data;
+            if (aNodeData && aNodeData.sceneNode) {
+              this.scene.selectionManager.selectNode(aNodeData.sceneNode, /*break selection*/ false);
+            }
+          })
+          .on('deselect_all.jstree', () => {
+            this.pmiSceneData?.sceneNodes.forEach((theNode) => this.scene.selectionManager.deselectNode(theNode));
           });
 
-          // Combine PMI graphical elements by type
-          const aPMIDataItems = await aSGE.pmi.pmiDataItems();
-          const aTypedElements = {};
-          aPMIDataItems.forEach((thePMIData, theIndex) => {
-            aTypedElements[thePMIData.type] = aTypedElements[thePMIData.type] || [];
-            aTypedElements[thePMIData.type].push({
-              pmiData: thePMIData,
-              // the view3d objects are created in order PMI elements storing
-              view3dObj: aView3Objs[theIndex]
-            });
+        this.pmiTree = $('#file-pmi-elements').jstree(true);
+
+        this.savedViewsDropDown = /** @type {HTMLSelectElement} */(document.getElementById('file-pmi-saved-views-select'));
+        this.savedViewsDropDown.onchange = this.onSavedViewChanged.bind(this);
+
+        /** @type {PMISceneData|null} */
+        this.pmiSceneData = null;
+
+        this.pmiSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+        this.pmiSceneNodeAppearance = new cadex.ModelData_Appearance(new cadex.ModelData_ColorObject());
+
+        this.clear();
+      }
+
+      reset() {
+        // Recreate factory to release data cache stored by factory.
+        this.pmiSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+        this.clear();
+      }
+
+      /**
+       * Loads PMI data items and convert it to scene nodes tree.
+       * @param {cadex.ModelData_PMITable} thePMITable
+       * @return {Promise<PMISceneData>}
+       */
+      async convertPMITable(thePMITable) {
+        const aPMIDataItems = await thePMITable.pmiDataItems();
+        /** @type {Map<cadex.ModelData_PMIGraphicalElement, cadex.ModelPrs_SceneNode & CustomPMISceneNode>} */
+        const aGraphicalElementToSceneNodeMap = new Map();
+        /** @type Map<string, Array<cadex.ModelPrs_SceneNode & CustomPMISceneNode>> */
+        const aSceneNodesByTypeMap = new Map();
+        const anAllPMISceneNodes = aPMIDataItems.map((thePMIData) => {
+          let aNode;
+          if (thePMIData.graphicalElement) {
+            aNode = /** @type {cadex.ModelPrs_SceneNode & CustomPMISceneNode} */(this.pmiSceneNodeFactory.createNodeFromPMIGraphicalElement(thePMIData.graphicalElement));
+            aNode.appearance = this.pmiSceneNodeAppearance;
+            aGraphicalElementToSceneNodeMap.set(thePMIData.graphicalElement, aNode);
+          } else {
+            aNode = /** @type {cadex.ModelPrs_SceneNode & CustomPMISceneNode} */(new cadex.ModelPrs_SceneNode());
+          }
+          aNode.name = thePMIData.name || 'Unnamed';
+          aNode.type = Object.keys(cadex.ModelData_PMIType).find(key => cadex.ModelData_PMIType[key] === thePMIData.type) || 'Undefined';
+          let aSimilarNodes = aSceneNodesByTypeMap.get(aNode.type);
+          if (!aSimilarNodes) {
+            aSimilarNodes = [];
+            aSceneNodesByTypeMap.set(aNode.type, aSimilarNodes);
+          }
+          aSimilarNodes.push(aNode);
+          return aNode;
+        });
+
+        /** @type {GroupedPMIData<string>} */
+        const aSceneNodesByType = Array.from(aSceneNodesByTypeMap, ([groupId, nodes]) => ({ groupId, nodes }))
+          .sort((a, b) => a.groupId.localeCompare(b.groupId));
+
+        const aSavedViews = await thePMITable.views();
+        /** @type {GroupedPMIData<cadex.ModelData_PMISavedView>} */
+        const aSceneNodesBySavedViews = aSavedViews.map((theSavedView) => {
+          const aSceneNodes = [];
+          for (const anElement of theSavedView.graphicalElements()) {
+            const aSceneNode = aGraphicalElementToSceneNodeMap.get(anElement);
+            if (aSceneNode) {
+              aSceneNodes.push(aSceneNode);
+            }
+          }
+          return {
+            groupId: theSavedView,
+            nodes: aSceneNodes,
+          };
+        });
+
+        return {
+          sceneNodes: anAllPMISceneNodes,
+          sceneNodesByType: aSceneNodesByType,
+          sceneNodesBySavedViews: aSceneNodesBySavedViews,
+        };
+      }
+
+      /**
+       * @param {JstreeSGENode} theNode
+       */
+      async loadSGENodePMI(theNode) {
+        this.clear(false);
+
+        const aNodeData = theNode.data;
+        if (aNodeData.pmiTable) {
+          if (!aNodeData.pmiSceneData) {
+            aNodeData.pmiSceneData = await this.convertPMITable(aNodeData.pmiTable);
+            aNodeData.pmiSceneData.sceneNodes.forEach((theNode) => aNodeData.sceneNode.addChildNode(theNode));
+          }
+          this.pmiSceneData = aNodeData.pmiSceneData;
+
+          const aSGNode = this.pmiTree.create_node(null, {
+            text: theNode.text,
+            type: theNode.type,
+            data: aNodeData,
           });
 
           // Feed PMI elements tree
-          for (let aPMIType in aTypedElements) {
-            const anElementNode = aPMITree.create_node(aSGNode, {
-              text: Object.keys(cadex.ModelData_PMIType).find(key => `${cadex.ModelData_PMIType[key]}` === aPMIType),
+          this.pmiSceneData.sceneNodesByType.forEach((theGroup) => {
+            const anPMITypeGroupTreeNode = this.pmiTree.create_node(aSGNode, {
+              text: theGroup.groupId,
               type: 'pmi',
+              data: {
+                sceneNodes: theGroup.nodes,
+              }
             });
-            aTypedElements[aPMIType].forEach(theElement => {
-              aPMITree.create_node(anElementNode, {
-                text: theElement.pmiData.name,
+
+            theGroup.nodes.forEach((theNode) => {
+              const aPMINodeId = this.pmiTree.create_node(anPMITypeGroupTreeNode, {
+                text: theNode.name,
                 type: 'pmi-element',
-                data: theElement
+                data: {
+                  sceneNode: theNode,
+                }
               });
+              theNode.pmiTreeId = aPMINodeId;
             });
-          }
+          });
 
           // Feed PMI Saved Views dropdown
-          /** @type {HTMLSelectElement} */
-          const aDropDown = document.getElementById('file-pmi-saved-views-select');
-          while (aDropDown.options.length > 0) {
-            aDropDown.remove(0);
-          }
           const anAllOption = document.createElement('option');
           anAllOption.text = 'All (auto created)';
-          aDropDown.add(anAllOption);
+          this.savedViewsDropDown.add(anAllOption);
 
-          const aViews = await aSGE.pmi.views();
-          aViews.forEach(theView => {
+          this.pmiSceneData.sceneNodesBySavedViews.forEach((theGroup) => {
             const anOption = document.createElement('option');
-            anOption.text = theView.name || 'Unnamed view';
-            aDropDown.add(anOption);
+            anOption.text = theGroup.groupId.name || 'Unnamed';
+            this.savedViewsDropDown.add(anOption);
           });
-          aDropDown.onchange = () => {
-            if (aDropDown.selectedIndex === 0) {
-              aScene.display(aView3Objs, cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
-            } else if (aDropDown.selectedIndex > 0) {
-              aScene.hide(aView3Objs);
-              const aSelectedView = aViews[aDropDown.selectedIndex - 1];
-              aSelectedView.elements.forEach(theElement => {
-                const anElementIndex = aPMIDataItems.findIndex(theItem => theElement === theItem.graphicalElement);
-                if (anElementIndex !== -1) {
-                  aScene.display(aView3Objs[anElementIndex], cadex.ModelPrs_DisplayMode.Shaded, cadex.ModelPrs_SelectionMode.Shape);
-                }
-              });
-              const aTrsf = aNodeData.ancestors.reduce((theTrsf, theAncestor) => {
-                if (theAncestor instanceof cadex.ModelData_Instance) {
-                  theTrsf.multiply(theAncestor.transformation);
-                }
-                return theTrsf;
-              }, new cadex.ModelData_Transformation);
-              aViewPort.changeCamera({
-                position: aSelectedView.camera.location.transformed(aTrsf),
-                target: aSelectedView.camera.targetPoint.transformed(aTrsf),
-                up: aSelectedView.camera.upDirection.transformed(aTrsf)
-              });
-            }
-          };
-          aDropDown.selectedIndex = -1;
-          aDropDown.onchange();
+          this.savedViewsDropDown.selectedIndex = -1;
         } else {
-          aPMITree.create_node(aTreeRoot, {
+          this.pmiTree.create_node(null, {
             text: 'There is no PMI table available',
             type: 'pmi'
           });
           // Clean up dropdown
-          const aDropDown = document.getElementById('file-pmi-saved-views-select');
-          while (aDropDown.options.length > 0) {
-            aDropDown.remove(0);
+          while (this.savedViewsDropDown.options.length > 0) {
+            this.savedViewsDropDown.remove(0);
           }
         }
-        aPMITree.open_all(null, 0);
-      })
-      .on('deselect_all.jstree', (theEvent, theData) => {
-        const aTreeNodes = theData.node;
-        const aPMITree = $('#file-scenegraph-container').jstree(true);
-        aTreeNodes.forEach(theNodeId => {
-          const aNode = aPMITree.get_node(theNodeId);
-          if (aNode.data && aNode.data.pmiView3dObj) {
-            aScene.hide(aNode.data.pmiView3dObj);
-          }
-        });
-      });
 
-    // Get jsTree object for scenegraph
-    const aJsTree = $('#file-scenegraph-container').jstree(true);
+        this.pmiTree.open_all(null, 0);
+      }
 
-    // Initialize jsTree library used for visualizing PMI structure (see https://www.jstree.com/)
-    $('#file-pmi-elements').jstree(aJSTreeConfig)
-      .on('select_node.jstree', async (theEvent, theData) => {
-        // Select PMI entity by selection
-        const aNodeData = theData.node.data;
-        if (aNodeData && aNodeData.view3dObj) {
-          aScene.select(aNodeData.view3dObj, /*break selection*/ true);
+      onSavedViewChanged() {
+        if (!this.pmiSceneData) {
+          return;
         }
-      });
+        if (this.savedViewsDropDown.selectedIndex === 0) {
+          this.pmiSceneData.sceneNodes.forEach((theNode) => {
+            theNode.visibilityMode = cadex.ModelPrs_VisibilityMode.Visible;
+            this.pmiTree.enable_node(theNode.pmiTreeId);
+          });
+        } else if (this.savedViewsDropDown.selectedIndex > 0) {
 
-    $('#file-pmi-elements').jstree(true).create_node(null, { text: 'Select tree node to see PMI data', type: 'pmi' });
+          this.pmiSceneData.sceneNodes.forEach((theNode) => {
+            theNode.visibilityMode = cadex.ModelPrs_VisibilityMode.Hidden;
+            this.pmiTree.disable_node(theNode.pmiTreeId);
+          });
 
-    initModelSelector('nist_ftc_08_asme1_ap242.stp', loadAndDisplayModel);
-
-    async function loadAndDisplayModel(theModelPath, theModelName) {
-
-      aScene.removeAll(true);
-
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
-
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-        // Create root file item
-        const aFileNode = aJsTree.create_node(null, {
-          text: theModelName,
-          type: 'file',
-          data: {}
-        });
-
-        // Feed tree with model structure
-        const aVisitor = new SceneGraphToJsTreeConverter(aFileNode);
-        await aModel.accept(aVisitor);
-        aJsTree.open_all(null, 0);
-
-        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-          displayer: new ModelDisplayer(),
-          repSelector: new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any),
-          async: false
-        });
-        aViewPort.fitAll();
-
-      }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+          const aSelectedViewData = this.pmiSceneData.sceneNodesBySavedViews[this.savedViewsDropDown.selectedIndex - 1];
+          aSelectedViewData.nodes.forEach((theNode) => {
+            this.pmiTree.enable_node(theNode.pmiTreeId);
+            theNode.visibilityMode = cadex.ModelPrs_VisibilityMode.Visible;
+          });
+          if (aSelectedViewData.groupId.camera) {
+            // TODO: .transformed(aTrsf)
+            this.viewport.camera.set(
+              aSelectedViewData.groupId.camera.location.clone(),
+              aSelectedViewData.groupId.camera.targetPoint.clone(),
+              aSelectedViewData.groupId.camera.upDirection.clone(),
+            );
+          }
+        }
+        this.scene.update();
       }
 
+      /**
+       * @param {boolean} [theToAddNoteNode]
+       */
+      clear(theToAddNoteNode = true) {
+        const aTreeRoot = this.pmiTree.get_node('#');
+        aTreeRoot.children.forEach((theRoot) => this.pmiTree.delete_node(theRoot));
+        while (this.savedViewsDropDown.options.length > 0) {
+          this.savedViewsDropDown.remove(0);
+        }
+        if (this.pmiSceneData) {
+          this.pmiSceneData.sceneNodes.forEach((thePMISceneNode) => {
+            thePMISceneNode.visibilityMode = cadex.ModelPrs_VisibilityMode.Hidden;
+          });
+          this.pmiSceneData = null;
+        }
+        if (theToAddNoteNode) {
+          this.pmiTree.create_node(null, { text: 'Select tree node to see PMI data', type: 'pmi' });
+        }
+      }
     }
 
-    // Use a visitor to feed jsTree
-    class SceneGraphToJsTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
-
-      constructor(theRootNode) {
+    class SceneGraphToTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
+      /**
+       * @param {any} theJsTree
+       * @param {string} theRootNodeId
+       * @param {cadex.ModelData_RepresentationMask} theRepMask
+       */
+      constructor(theJsTree, theRootNodeId, theRepMask) {
         super();
-        this.jsTreeNodes = [theRootNode];
-        this.ancestors = [];
+        this.jstree = theJsTree;
+        this.treeNodesStack = [theRootNodeId];
+        /** @type {Array<cadex.ModelPrs_SceneNode & CustomSGESceneNode>} */
+        this.sceneNodesStack = [new cadex.ModelPrs_SceneNode()];
+        /** @type {cadex.ModelData_Instance|null} */
+        this.lastInstance = null;
+        this.sceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+        this.repMask = theRepMask;
       }
-      currentNode() {
-        return this.jsTreeNodes[this.jsTreeNodes.length - 1];
+      currentTreeNode() {
+        return this.treeNodesStack[this.treeNodesStack.length - 1];
+      }
+      currentSceneNode() {
+        return this.sceneNodesStack[this.sceneNodesStack.length - 1];
+      }
+
+      /**
+       * @param {!cadex.ModelData_SceneGraphElement} theElement
+       * @param {boolean} theAddToStack
+       * @returns {cadex.ModelPrs_SceneNode & CustomSGESceneNode}
+       */
+      addSceneNode(theElement, theAddToStack) {
+        const aSceneNode = /** @type {cadex.ModelPrs_SceneNode & CustomSGESceneNode} */(this.sceneNodeFactory.createNodeFromSceneGraphElement(theElement));
+        this.currentSceneNode().addChildNode(aSceneNode);
+        if (theAddToStack) {
+          this.sceneNodesStack.push(aSceneNode);
+        }
+        return aSceneNode;
       }
       /**
        * @override
        * @param {!cadex.ModelData_Part} thePart
        */
       visitPart(thePart) {
-        const anAncestors = this.ancestors.slice();
-        anAncestors.push(thePart);
+        const anInstanceNode = this.lastInstance && this.currentSceneNode();
+        const aPartNode = this.addSceneNode(thePart, false);
+        let aRepresentationNode;
+        const aRepresentation = thePart.representation(this.repMask);
+        if (aRepresentation) {
+          aRepresentationNode = /** @type {cadex.ModelPrs_SceneNode & CustomSGESceneNode}> */(this.sceneNodeFactory.createNodeFromRepresentation(aRepresentation));
+          aPartNode.addChildNode(aRepresentationNode);
+        }
+
+        const aSceneNode = anInstanceNode || aPartNode;
+
+        /** @type {JstreeSGENode} */
         const aTreeItem = {
-          text: thePart.name || 'Unnamed Part',
+          text: this.lastInstance?.name || thePart.name || 'Unnamed Part',
           type: 'part',
           data: {
-            ancestors: anAncestors
-          }
+            sge: this.lastInstance || thePart,
+            sceneNode: aSceneNode,
+            representationSceneNode: aRepresentationNode,
+            pmiTable: this.lastInstance?.pmi || thePart.pmi,
+          },
         };
-        aJsTree.create_node(this.currentNode(), aTreeItem);
+        const aNodeId = this.jstree.create_node(this.currentTreeNode(), aTreeItem);
+        aSceneNode.sgeTreeId = aNodeId;
+        if (aRepresentationNode) {
+          aRepresentationNode.sgeTreeId = aNodeId;
+        }
       }
       /**
        * @override
        * @param {!cadex.ModelData_Instance} theInstance
        */
       visitInstanceEnter(theInstance) {
-        this.ancestors.push(theInstance);
-        const aTreeItem = {
-          text: theInstance.name || 'Unnamed Instance',
-          type: 'instance',
-          data: {
-            ancestors: this.ancestors.slice()
-          }
-        };
-        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
-        this.jsTreeNodes.push(aNode);
+        this.lastInstance = theInstance;
+        this.addSceneNode(theInstance, true);
         return true;
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Instance} theInstance
+       * @param {!cadex.ModelData_Instance} _theInstance
        */
-      visitInstanceLeave(/*theInstance*/) {
-        this.jsTreeNodes.pop();
-        this.ancestors.pop();
+      visitInstanceLeave(_theInstance) {
+        this.lastInstance = null;
+        this.sceneNodesStack.pop();
       }
       /**
        * @override
        * @param {!cadex.ModelData_Assembly} theAssembly
        */
       visitAssemblyEnter(theAssembly) {
-        this.ancestors.push(theAssembly);
+        const anInstanceNode = this.lastInstance && this.currentSceneNode();
+        let anAssemblyNode = this.addSceneNode(theAssembly, true);
+        const aSceneNode = anInstanceNode || anAssemblyNode;
+
+        /** @type {JstreeSGENode} */
         const aTreeItem = {
-          text: theAssembly.name || 'Unnamed Assembly',
+          text: this.lastInstance?.name || theAssembly.name || 'Unnamed Assembly',
           type: 'assembly',
           data: {
-            ancestors: this.ancestors.slice()
-          }
+            sge: this.lastInstance || theAssembly,
+            sceneNode: aSceneNode,
+            pmiTable: this.lastInstance?.pmi || theAssembly.pmi,
+          },
         };
-        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
-        this.jsTreeNodes.push(aNode);
+        const aNodeId = this.jstree.create_node(this.currentTreeNode(), aTreeItem);
+        aSceneNode.sgeTreeId = aNodeId;
+        this.treeNodesStack.push(aNodeId);
+
         return true;
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Assembly} theAssembly
+       * @param {!cadex.ModelData_Assembly} _theAssembly
        */
-      visitAssemblyLeave(/*theAssembly*/) {
-        this.jsTreeNodes.pop();
-        this.ancestors.pop();
+      visitAssemblyLeave(_theAssembly) {
+        this.treeNodesStack.pop();
+        this.sceneNodesStack.pop();
       }
-
     }
 
-    // Callback for displaying created view3d objects on the scene.
-    class ModelDisplayer extends cadex.ModelPrs_Displayer {
+
+    class PMIViewerExample {
+      constructor() {
+        // The model
+        this.model = new cadex.ModelData_Model();
+        // The scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
+        // Subscribe to selection events
+        this.scene.selectionManager.addEventListener('selectionChanged', this.onSelectionChangedByScene.bind(this));
+
+        // The viewport for visualization. Initializing with default config and element attach to.
+        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
+        // Attach viewport to scene to render content of
+        this.viewport.attachToScene(this.scene);
+
+        const aJSTreeConfig = {
+          core: {
+            multiple: false,
+            check_callback: true,
+            themes: {
+              name: null, //'default',
+              dots: true,
+            }
+          },
+          types: {
+            file: {
+              icon: 'icon-file'
+            },
+            assembly: {
+              icon: 'icon-assembly'
+            },
+            instance: {
+              icon: 'icon-instance'
+            },
+            part: {
+              icon: 'icon-part'
+            },
+            pmi: {
+              icon: 'icon-pmi'
+            },
+            'pmi-element': {
+              icon: 'icon-pmi-element'
+            }
+          },
+          plugins: ['wholerow', 'types']
+        };
+
+        this.pmiTreeManager = new PMITreeManager(this.scene, this.viewport, aJSTreeConfig);
+
+        // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
+        $('#file-scenegraph-container').jstree(aJSTreeConfig)
+          .on('select_node.jstree', async (_theEvent, theData) => {
+            this.pmiTreeManager.loadSGENodePMI(theData.node);
+            if (theData.node?.data?.representationSceneNode) {
+              this.scene.selectionManager.selectNode(theData.node?.data?.representationSceneNode, false);
+            }
+          })
+          .on('deselect_all.jstree', () => {
+            this.pmiTreeManager.clear();
+            this.scene.selectionManager.deselectAll(false);
+          });
+
+        this.sceneGraphTree = $('#file-scenegraph-container').jstree(true);
+      }
+
       /**
-       * @param {Array<ModelPrs_View3dObject>} theView3dObjects List of objects to display
-       * @param {ModelData_Representation} theRepresentation The presentation which view3d object created for.
-       * @param {Array<ModelData_SceneGraphElement>} theAncestors The valid path in scenegraph to the element which displayed.
-       * @param {number} theDisplayMode Mode to display with.
+       * @param {string} theModelPath
+       * @param {string} theModelName
        */
-      display(theView3dObjects, theRepresentation, theAncestors, theDisplayMode) {
-        aScene.display(theView3dObjects, theDisplayMode);
+      async loadAndDisplayModel(theModelPath, theModelName) {
+        try {
+          // Clean up scene to display new model
+          this.pmiTreeManager.reset();
+          this.scene.clear();
+          await this.scene.update();
+
+          // Remove product structure tree
+          const aRootNode = this.sceneGraphTree.get_node('#');
+          aRootNode.children.forEach(theNodeId => this.sceneGraphTree.delete_node(theNodeId));
+
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          // Create root file item
+          const aFileNodeId = this.sceneGraphTree.create_node(null, {
+            text: theModelName,
+            type: 'file',
+            data: {}
+          });
+
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+
+          // Feed tree with model structure
+          const aVisitor = new SceneGraphToTreeConverter(this.sceneGraphTree, aFileNodeId, aRepMask);
+          await this.model.accept(aVisitor);
+          this.sceneGraphTree.open_all(null, 0);
+
+          const aRootSceneNode = aVisitor.currentSceneNode();
+          aRootSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+          aRootSceneNode.selectionMode = cadex.ModelPrs_SelectionMode.Node;
+          this.scene.addRoot(aRootSceneNode);
+
+          // Update scene to apply changes.
+          await updateSceneSmoothly(this.scene, this.viewport);
+
+          // Finally move camera to position when the whole model is in sight
+          this.viewport.fitAll();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
+        }
+      }
+
+      /**
+       * @param {cadex.ModelPrs_SelectionChangedEvent} theEvent
+       */
+      onSelectionChangedByScene(theEvent) {
+        theEvent.added.forEach((theAdded => {
+          const anAddedObject = /** @type {cadex.ModelPrs_SceneNode & CustomSGESceneNode & CustomPMISceneNode} */(theAdded.node);
+          if (anAddedObject.sgeTreeId) {
+            this.sceneGraphTree.select_node(anAddedObject.sgeTreeId);
+          } else if (anAddedObject.pmiTreeId) {
+            this.pmiTreeManager.pmiTree.select_node(anAddedObject.pmiTreeId);
+          }
+        }));
+        theEvent.removed.forEach((theRemoved => {
+          const aRemovedObject = /** @type {cadex.ModelPrs_SceneNode & CustomSGESceneNode & CustomPMISceneNode} */(theRemoved.node);
+          if (aRemovedObject.sgeTreeId) {
+            this.sceneGraphTree.deselect_node(aRemovedObject.sgeTreeId);
+          } else if (aRemovedObject.pmiTreeId) {
+            this.pmiTreeManager.pmiTree.deselect_node(aRemovedObject.pmiTreeId);
+          }
+        }));
+        // Handle deselectAll on click on empty space on the viewer
+        if (this.scene.selectionManager.numberOfSelectedItems === 0) {
+          this.sceneGraphTree.deselect_all(true);
+          this.pmiTreeManager.pmiTree.deselect_all(true);
+        }
       }
     }
+
+    const aPMIViewerExample = new PMIViewerExample();
+
+    initModelSelector('nist_ftc_08_asme1_ap242.stp', aPMIViewerExample.loadAndDisplayModel.bind(aPMIViewerExample), (theModel) => !!theModel.hasPMI);
 
   </script>
 

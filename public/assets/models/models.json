@@ -9,7 +9,8 @@
   },
   {
     "name": "nist_ftc_08_asme1_ap242.stp",
-    "path": "native/nist_ftc_08_asme1_ap242.stp.cdxfb"
+    "path": "native/nist_ftc_08_asme1_ap242.stp.cdxfb",
+    "hasPMI": true
   },
   {
     "name": "Tisno.fbx",

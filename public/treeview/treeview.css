@@ -65,7 +65,7 @@
 }
 
 .jstree-default .jstree-anchor.jstree-sge-loading > .jstree-icon.jstree-sge-state {
-  background-image: none;
+  background-image: none !important;
   position: relative;
 }
 

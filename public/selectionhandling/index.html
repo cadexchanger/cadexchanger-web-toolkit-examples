@@ -35,41 +35,50 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Selection handling.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Selection handling</title>
 
-  <meta name="description" content="Selection handling.">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="selectionhandling.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="selectionhandling.css">
 </head>
 
 <body>
-  
+
   <div id="example-container">
     <div id="file-viewer"></div>
     <div id="side-panel">
 
-      <div id="model-selector">
-        <div>Select model:</div>
-        <select></select>
-      </div>
+      <div id="model-selector"></div>
 
       <div id="selection-mode-selector">
         <div>Selection Mode:</div>
         <select>
-          <option value="None">None</option>
-          <option value="Shape">Object</option>
-          <option value="Solid">Solid</option>
-          <option value="Shell">Shell</option>
-          <option value="Face" selected>Face</option>
-          <option value="Wire">Wire</option>
-          <option value="Edge">Edge</option>
-          <option value="Vertex">Vertex</option>
+          <optgroup label="Common">
+            <option value="None">None</option>
+            <option value="Node">Node</option>
+          <optgroup>
+          <optgroup label="For B-Rep entities" disabled>
+            <option value="Body">Body</option>
+            <option value="Solid">Solid</option>
+            <option value="Shell">Shell</option>
+            <option value="Face" selected>Face</option>
+            <option value="Wire">Wire</option>
+            <option value="Edge">Edge</option>
+            <option value="Vertex">Vertex</option>
+          </optgroup>
+          <optgroup label="For Poly entities" disabled>
+            <option value="PolyShape">PolyShape</option>
+            <option value="PolyVertex">PolyVertex</option>
+          </optgroup>
         </select>
       </div>
 
@@ -83,192 +92,395 @@
     <div id="context-menu"></div>
   </div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
+  <script type="importmap">
+    {
+      "imports": {
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
+      }
+    }
+  </script>
+
+  <!-- Selection handling sample code -->
   <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global cadex, initModelSelector, modelUrl, fetchFile */
 
-    // Create model
-    let aModel = new cadex.ModelData_Model();
-    // Create scene for visualization
-    const aScene = new cadex.ModelPrs_Scene();
-    aScene.globalDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
+    import { fetchFile, initModelSelector, modelUrl } from '../assets/js/helpers.mjs';
 
-    // Subscribe to selection event
-    aScene.addEventListener('selectionChanged', onSelectionChanged);
-    // Hide mouse menu by any mouse press
-    window.addEventListener('mousedown', hideContextMenu);
+    import cadex from '@cadexchanger/web-toolkit';
 
-    // Create viewport with default config and div element attach to.
-    const aViewPort = new cadex.ModelPrs_ViewPort({}, document.getElementById('file-viewer'));
-    // Attach viewport to scene to render content of it
-    aViewPort.attachToScene(aScene);
-    // Enable hovering for vertex selection
-    aViewPort.hoverEnabled = true;
-    // Subscribe to context menu event (right mouse click)
-    aViewPort.addEventListener('contextMenu', showContextMenu);
+    /**
+     * Interface for additional 'sge' property.
+     * @typedef CustomSceneNode
+     * @property {?cadex.ModelData_SceneGraphElement} sge
+     * @property {?cadex.ModelData_Representation} representation
+     * @property {?string} name
+     */
 
-    initModelSelector('RIDGID_planeur_TP13000.dwg', loadAndDisplayModel);
+    class SceneGraphConverter extends cadex.ModelData_SceneGraphElementVisitor {
+      /**
+       * @param {cadex.ModelData_RepresentationMask} theRepMask
+       * @param {cadex.ModelPrs_SceneNode} theNode
+       */
+      constructor(theRepMask, theNode) {
+        super();
+        this.sceneNodes = [theNode];
+        /** @type {cadex.ModelData_Instance|null} */
+        this.lastInstance = null;
+        this.sceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+        this.repMask = theRepMask;
+      }
 
-    initSelectionModeSelector();
-
-    async function loadAndDisplayModel(theModelPath) {
-
-      // Clean up scene to display new model
-      aScene.removeAll(true);
-
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
-
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-        const aSelectionModeSelector = document.querySelector('#selection-mode-selector>select');
-        for (let i = 0; i < aSelectionModeSelector.children.length; i++) {
-          const anElement = aSelectionModeSelector.children[i];
-          switch (anElement.value) {
-            case 'Solid':
-            case 'Shell':
-            case 'Face':
-            case 'Wire':
-            case 'Edge': {
-              anElement.disabled = !aLoadResult.hasBRepRep;
-              break;
-            }
-            default: break;
-          }
+      /**
+       * @param {!cadex.ModelData_SceneGraphElement} theElement
+       * @param {boolean} theAddToStack
+       * @returns {cadex.ModelPrs_SceneNode & CustomSceneNode}
+       */
+      addSceneNode(theElement, theAddToStack) {
+        const aNode = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(this.sceneNodeFactory.createNodeFromSceneGraphElement(theElement));
+        this.sceneNodes[this.sceneNodes.length - 1].addChildNode(aNode);
+        aNode.sge = theElement;
+        if (theAddToStack) {
+          this.sceneNodes.push(aNode);
         }
-        aSelectionModeSelector.value = aLoadResult.hasBRepRep ? 'Face' : 'Vertex';
-        aSelectionModeSelector.onchange();
-
-        // Convert added model roots into visualization objects and display it
-        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-          displayer: new SceneDisplayer(aScene),
-          repSelector: new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any),
-          interpretPolyVertexesAsBRepVertexes: true,
-        });
-
-        // Move camera to position when the whole model is in sight
-        aViewPort.fitAll();
-      }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+        return aNode;
       }
 
+      /**
+       * @override
+       * @param {!cadex.ModelData_Part} thePart
+       */
+      visitPart(thePart) {
+        const aPartNode = this.addSceneNode(thePart, false);
+        aPartNode.name = this.lastInstance?.name || thePart.name;
+        this.sceneNodes[this.sceneNodes.length - 1].addChildNode(aPartNode);
+
+        let aRepresentationNode;
+        const aRepresentation = thePart.representation(this.repMask);
+        if (aRepresentation) {
+          aRepresentationNode = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(this.sceneNodeFactory.createNodeFromRepresentation(aRepresentation));
+          // Representation node is the main node used for selection
+          aRepresentationNode.representation = aRepresentation;
+          aPartNode.addChildNode(aRepresentationNode);
+        }
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceEnter(theInstance) {
+        this.addSceneNode(theInstance, true);
+        this.lastInstance = theInstance;
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} _theInstance
+       */
+      visitInstanceLeave(_theInstance) {
+        this.sceneNodes.pop();
+        this.lastInstance = null;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} theAssembly
+       */
+      visitAssemblyEnter(theAssembly) {
+        this.addSceneNode(theAssembly, true);
+        return true;
+      }
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} _theAssembly
+       */
+      visitAssemblyLeave(_theAssembly) {
+        this.sceneNodes.pop();
+      }
     }
 
-    class SceneDisplayer extends cadex.ModelPrs_Displayer {
+    class SelectedEntityVisitor extends cadex.ModelPrs_SelectedEntityVisitor {
+      constructor() {
+        super();
+        this.str = '';
+      }
+      /**
+       * @override
+       * @param {cadex.ModelPrs_SelectedShapeEntity} theShapeEntity
+       */
+      visitShapeEntity(theShapeEntity) {
+        this.str = Object.keys(cadex.ModelData_ShapeType).find((type) => theShapeEntity.shape.type === cadex.ModelData_ShapeType[type]) || 'Unknown type';
+        if (theShapeEntity.shape instanceof cadex.ModelData_Vertex) {
+          this.str += theShapeEntity.shape.point.toString();
+        }
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_SelectedPolyShapeEntity} _thePolyShapeEntity
+       */
+      visitPolyShapeEntity(_thePolyShapeEntity) {
+        this.str = 'Poly shape';
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_SelectedPolyVertexEntity} thePolyVertexEntity
+       */
+      visitPolyVertexEntity(thePolyVertexEntity) {
+        this.str = `Poly shape vertex [${thePolyVertexEntity.vertexIndex}]`;
+      }
+    }
+
+    class PickResultFormatter extends cadex.ModelPrs_PickedEntityVisitor {
+      constructor() {
+        super();
+        /** @type {string|null} */
+        this.pickedEntityStr = null;
+      }
+      /**
+       * @param {cadex.ModelPrs_SceneNode} theRepNode
+       */
+      partName(theRepNode) {
+        const aPartName = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theRepNode.parent).name;
+        return aPartName ? `"${aPartName}" part` : 'Unnamed part';
+      }
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PickedNodeEntity} theEntity
+       */
+      visitPickedNodeEntity(theEntity) {
+        const aRep = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theEntity.node).representation;
+        this.pickedEntityStr = aRep ? this.partName(theEntity.node) : 'Unknown node';
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PickedShapeEntity} theEntity
+       */
+      visitPickedShapeEntity(theEntity) {
+        const aRep = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theEntity.node).representation;
+        if (aRep) {
+          const aPartName = this.partName(theEntity.node);
+          const aBRepRep = /** @type {cadex.ModelData_BRepRepresentation} */(aRep);
+          const aShapeId = aBRepRep.shapeId(theEntity.shape);
+          const aShapeTypeName = Object.keys(cadex.ModelData_ShapeType).find((n) => cadex.ModelData_ShapeType[n] === theEntity.shape.type);
+          this.pickedEntityStr = `${aShapeTypeName} ${aShapeId} of ${aPartName}`;
+        } else {
+          this.pickedEntityStr = 'Unknown node\'s shape';
+        }
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PickedPolyShapeEntity} theEntity
+       */
+      visitPickedPolyShapeEntity(theEntity) {
+        const aRep = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theEntity.node).representation;
+        if (aRep) {
+          const aPartName = this.partName(theEntity.node);
+          this.pickedEntityStr = `Poly shape of ${aPartName}`;
+        } else {
+          this.pickedEntityStr = 'Unknown node\' poly shape';
+        }
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PickedPolyVertexEntity} theEntity
+       */
+      visitPickedPolyVertexEntity(theEntity) {
+        const aRep = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theEntity.node).representation;
+        if (aRep) {
+          const aPartName = this.partName(theEntity.node);
+          this.pickedEntityStr = `Vertex ${theEntity.vertexIndex} of poly shape of ${aPartName}`;
+        } else {
+          this.pickedEntityStr = 'Unknown node\' poly shape vertex';
+        }
+      }
+
+      /**
+       * @override
+       * @param {cadex.ModelPrs_PickedClipPlaneEntity} _theEntity
+       */
+      visitPickedClipPlaneEntity(_theEntity) {
+        this.pickedEntityStr = 'Clip plane';
+      }
+    }
+
+    class ContextMenuHandler extends cadex.ModelPrs_ContextMenuHandler {
       /**
        * @param {cadex.ModelPrs_Scene} theScene
        */
       constructor(theScene) {
         super();
-        this.myScene = theScene;
-        this.displayCounter = 0;
+        this.scene = theScene;
+        this.contextMenuElement = /** @type {HTMLElement}*/(document.getElementById('context-menu'));
+
+        // Hide mouse menu by any mouse press
+        document.addEventListener('pointerdown', (theEvent) => {
+          if (/** @type {HTMLElement|null} */(theEvent?.target)?.closest('.context-menu')) {
+            this.hideContextMenu();
+          }
+        });
       }
+
       /**
        * @override
-       * @param {Array<ModelPrs_View3dObject>} theView3dObjects
-       * @param {ModelData_Representation} theRepresentation
-       * @param {Array<ModelData_SceneGraphElement>} theAncestors
-       * @param {ModelPrs_DisplayMode} theDisplayMode
+       * @param {cadex.ModelPrs_PointerInputEvent} theEvent
        */
-      display(theView3dObjects, theRepresentation, theAncestors, theDisplayMode) {
-        if (theView3dObjects) {
-          theView3dObjects.forEach(theObj => {
-            // Any identificator can be added to identify object on the scene
-            theObj.sge = theAncestors[theAncestors.length - 1];
-          });
-          this.myScene.display(theView3dObjects, theDisplayMode);
-          this.displayCounter++;
-          if (this.displayCounter % 10 === 0) {
-            aViewPort.fitAll();
-          }
+      contextMenu(theEvent) {
+        const aPosition = theEvent.point.position;
+        const aPickResult = this.scene.selectionManager.pickFromViewport(aPosition.x, aPosition.y, theEvent.viewport);
+        if (aPickResult) {
+          const aPickedEntityVisitor = new PickResultFormatter();
+          aPickResult.pickedEntity.accept(aPickedEntityVisitor);
+          this.contextMenuElement.innerHTML = aPickedEntityVisitor.pickedEntityStr || 'Unable to parse pick result';
+        } else {
+          this.contextMenuElement.innerHTML = 'No object detected';
         }
+        this.contextMenuElement.style.display = 'block';
+        this.contextMenuElement.style.left = `${aPosition.x}px`;
+        this.contextMenuElement.style.top = `${aPosition.y}px`;
+      }
+
+      hideContextMenu() {
+        this.contextMenuElement.style.display = '';
       }
     }
+    class SelectionHandlingExample {
+      constructor() {
+        // Create model
+        this.model = new cadex.ModelData_Model();
+        // Create scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
+        // Subscribe to selection changed events
+        this.scene.selectionManager.addEventListener('selectionChanged', this.onSelectionChanged.bind(this));
 
-    /**
-      * @param {cadex.ModelPrs_SelectionChangedEvent} theEvent
-    */
-    function onSelectionChanged(theEvent) {
+        // Create viewport with default config and div element attach to.
+        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
+        // Attach viewport to scene to render content of it
+        this.viewport.attachToScene(this.scene);
 
-      const formatItem = (theItem) => {
-        let aMessage = '';
-        const aPartName = theItem.object.sge.name ? `'${theItem.object.sge.name}'` : '<unnamed part>';
-        aMessage += `{\n  part: ${aPartName}\n`;
-        if (theItem.shapes) {
-          aMessage += '  shapes: [\n    ';
-          aMessage += theItem.shapes.map(s => {
-            if (s instanceof cadex.ModelData_Vertex) {
-              const anObjectTransformation = theItem.object.transformation;
-              return `Vertex ${s.point.transformed(anObjectTransformation)}`;
-            } else {
-              return Object.keys(cadex.ModelData_ShapeType).find((t) => cadex.ModelData_ShapeType[t] === s.type);
-            }
-          }).join(',\n    ');
-          aMessage += '\n  ]\n';
-        }
-        aMessage += '}';
+        // Hover and highlighting are disabled by default due performance reasons. Enable it.
+        this.viewport.inputManager.isHoverEnabled = true;
+        this.viewport.inputManager.pushInputHandler(new cadex.ModelPrs_HighlightingHandler(this.viewport));
 
-        return aMessage;
-      };
+        // Enables context menu handling
+        const aContextMenuHandler = new ContextMenuHandler(this.scene);
+        this.viewport.inputManager.pushInputHandler(aContextMenuHandler);
 
-      if (theEvent.removed.length > 0) {
-        let aMessage = `Deselected ${theEvent.removed.length} item${theEvent.removed.length > 1 ? 's' : ''}:\n`;
-        aMessage += theEvent.removed.map(formatItem).join('\n');
-        console.log(aMessage);
-      }
-      if (theEvent.added.length > 0) {
-        let aMessage = `Selected ${theEvent.added.length} item${theEvent.added.length > 1 ? 's' : ''}:\n`;
-        aMessage += theEvent.added.map(formatItem).join('\n');
-        console.log(aMessage);
-      }
-    }
+        // Use separate scene root to store actual selection mode.
+        this.rootSceneNode = new cadex.ModelPrs_SceneNode();
+        this.scene.addRoot(this.rootSceneNode);
 
-    /**
-     * @param {cadex.ModelPrs_ContextMenuEvent} theEvent
-     */
-    function showContextMenu(theEvent) {
-      const aPickResult = aScene.pick(theEvent.ray);
-      const aContextMenu = document.getElementById('context-menu');
-      if (aPickResult) {
-        aContextMenu.innerHTML = (aPickResult.shapes ? `${aPickResult.shapes.length} shapes of ` : '') + `Part "${aPickResult.object.sge.name}"`;
-      } else {
-        aContextMenu.innerHTML = 'No object detected';
-      }
-      aContextMenu.style.display = 'block';
-      // point contains mouse event point related to viewport element position
-      // normalizedPoint contains normalize mouse event point (x / canvas width, y / canvas height)
-      aContextMenu.style.left = `${theEvent.point.x}px`;
-      aContextMenu.style.top = `${theEvent.point.y}px`;
-    }
-
-    function hideContextMenu(/*theEvent*/) {
-      const aContextMenu = document.getElementById('context-menu');
-      aContextMenu.style.display = '';
-    }
-
-    function initSelectionModeSelector() {
-      /** @type {HTMLSelectElement} */
-      const aSelectionModeSelector = document.querySelector('#selection-mode-selector>select');
-      if (aSelectionModeSelector) {
-        aSelectionModeSelector.onchange = () => {
-          aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode[aSelectionModeSelector.value];
+        const aSelectionModeSelector = /** @type {HTMLSelectElement} */(document.querySelector('#selection-mode-selector>select'));
+        const onSelectionModeChanged = () => {
+          this.rootSceneNode.selectionMode = cadex.ModelPrs_SelectionMode[aSelectionModeSelector.value];
+          this.scene.update();
         };
-        aSelectionModeSelector.onchange();
+        aSelectionModeSelector.onchange = onSelectionModeChanged;
+        onSelectionModeChanged();
+      }
+
+      /**
+       * @param {string} theModelPath
+       */
+      async loadAndDisplayModel(theModelPath) {
+        try {
+          // Clean up scene to display new model
+          this.rootSceneNode.removeChildNodes();
+          await this.scene.update();
+
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          const aSelectionModeSelector = /** @type {HTMLSelectElement} */(document.querySelector('#selection-mode-selector>select'));
+
+          const aBRepSelectionModeGroup = /** @type {HTMLOptGroupElement} */(aSelectionModeSelector.querySelector('optgroup[label*="B-Rep"]'));
+          aBRepSelectionModeGroup.disabled = !aLoadResult.hasBRepRep;
+
+          const aPolySelectionModeGroup = /** @type {HTMLOptGroupElement} */(aSelectionModeSelector.querySelector('optgroup[label*="Poly"]'));
+          aPolySelectionModeGroup.disabled = aLoadResult.hasBRepRep;
+
+          aSelectionModeSelector.value = aLoadResult.hasBRepRep ? 'Face' : 'PolyShape';
+
+          this.rootSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+
+          // Create visualization graph for model.
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          const aModelConverter = new SceneGraphConverter(aRepMask, this.rootSceneNode);
+          await this.model.accept(aModelConverter);
+          this.scene.addRoot(this.rootSceneNode);
+
+          // Update scene to apply changes.
+          await this.scene.update();
+
+          // Finally move camera to position when the whole model is in sight
+          this.viewport.fitAll();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
+        }
+      }
+
+      /**
+       * @param {cadex.ModelPrs_SelectionChangedEvent} theEvent
+       */
+      onSelectionChanged(theEvent) {
+        /**
+         * @param {cadex.ModelPrs_SelectionItem} theItem
+         * @returns {string}
+         */
+        const formatItem = (theItem) => {
+          let aMessage = '';
+          const aRepNode = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(theItem.node);
+          if (!aRepNode.representation) {
+            return 'Unknown item';
+          }
+          const aPartName = /** @type {cadex.ModelPrs_SceneNode & CustomSceneNode} */(aRepNode.parent).name;
+          aMessage += `{\n  part: ${aPartName ? `"${aPartName}" ` : 'Unnamed'}\n`;
+          if (theItem.numberOfEntities > 0) {
+            aMessage += '  entities: [';
+            const aSelectedEntityVisitor = new SelectedEntityVisitor();
+            for (const anEntity of theItem.entities()) {
+              anEntity.accept(aSelectedEntityVisitor);
+              aMessage += `\n    ${aSelectedEntityVisitor.str},`;
+            }
+            aMessage += '\n  ]\n';
+          }
+          aMessage += '}';
+
+          return aMessage;
+        };
+
+        if (theEvent.removed.length > 0) {
+          let aMessage = `Deselected ${theEvent.removed.length} item${theEvent.removed.length > 1 ? 's' : ''}:\n`;
+          aMessage += theEvent.removed.map(formatItem).join('\n');
+          console.log(aMessage);
+        }
+        if (theEvent.added.length > 0) {
+          let aMessage = `Selected ${theEvent.added.length} item${theEvent.added.length > 1 ? 's' : ''}:\n`;
+          aMessage += theEvent.added.map(formatItem).join('\n');
+          console.log(aMessage);
+        }
       }
     }
+
+    const aSelectionHandlingExample = new SelectionHandlingExample();
+
+    initModelSelector('RIDGID_planeur_TP13000.dwg', aSelectionHandlingExample.loadAndDisplayModel.bind(aSelectionHandlingExample));
+
 
   </script>
 

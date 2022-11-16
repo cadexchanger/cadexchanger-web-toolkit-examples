@@ -35,32 +35,32 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Model Explorer.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Model Explorer</title>
 
-  <meta name="description" content="Model Explorer.">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-  <link rel="stylesheet" href="/assets/css/example.css"><link rel="stylesheet" href="modelexplorer.css">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
+  <link rel="stylesheet" href="/assets/css/example.css">
+  <link rel="stylesheet" href="modelexplorer.css">
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree/dist/themes/default/style.min.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
 </head>
 
 <body>
-  
-  <div id="example-container">
 
+  <div id="example-container">
     <div id="model-explorer-sidebar">
       <div id="file-viewer"></div>
 
       <div id="file-scenegraph-container">
-        <div id="model-selector">
-          <div>Select model:</div>
-          <select></select>
-        </div>
+        <div id="model-selector"></div>
         <div id="tree-container"></div>
       </div>
     </div>
@@ -70,146 +70,44 @@
     </div>
   </div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill for old browsers (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
-
-  <!-- Helper libraries -->
+  <!-- Tree helper libraries -->
   <!-- Required by jstree (https://jquery.com/) -->
   <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
   <!-- jstree library is used to simplify create tree with html (https://www.jstree.com) -->
   <script src="https://cdn.jsdelivr.net/npm/jstree/dist/jstree.min.js"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
-  <script type="module">
-    import '../node_modules/@cadexchanger/web-toolkit/build/cadex.bundle.js';
-    /* global cadex, $, initModelSelector, modelUrl, fetchFile */
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-    // Global model
-    const aModel = new cadex.ModelData_Model();
-    // Create scene for visualization
-    const aScene = new cadex.ModelPrs_Scene();
-    // Setup global selection mode to allow shape selection
-    aScene.globalSelectionMode = cadex.ModelPrs_SelectionMode.Shape;
-
-    // Create viewport with default config and div element attach to.
-    const aViewPort = new cadex.ModelPrs_ViewPort({
-      showViewCube: true,
-      autoResize: true,
-    }, document.getElementById('file-viewer'));
-    // Attach viewport to scene to render content of it
-    aViewPort.attachToScene(aScene);
-
-    // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
-    $('#tree-container').jstree({
-      core: {
-        multiple: false,
-        check_callback: true,
-        themes: {
-          'name': null, //'default',
-          'dots': true,
-        }
-      },
-      'types': {
-        'file': {
-          'icon': 'icon-file'
-        },
-        'assembly': {
-          'icon': 'icon-assembly'
-        },
-        'instance': {
-          'icon': 'icon-instance'
-        },
-        'part': {
-          'icon': 'icon-part'
-        }
-      },
-      'plugins': ['wholerow', 'types']
-    })
-      .on('select_node.jstree', async (theEvent, theData) => {
-        if (theData.node.data && theData.node.data.sge) {
-          const aVisitor = new ElementVisitor(theData.node.data.textureBasePath);
-          await theData.node.data.sge.accept(aVisitor);
-          $('#info-card').html(aVisitor.info);
-        } else {
-          const anInfoCardMessage = document.createElement('span');
-          anInfoCardMessage.textContent = 'No information available.';
-          $('#info-card').html(anInfoCardMessage);
-        }
-      });
-
-    // Get jsTree object
-    const aJsTree = $('#tree-container').jstree(true);
-    let aCurrentModelNode;
-
-    initModelSelector('as1-oc-214.stp', loadAndTraverseModel);
-
-    async function loadAndTraverseModel(theModelPath, theModelName) {
-
-      // Clean up scene to display new model
-      aScene.removeAll(true);
-
-      const anInfoCardMessage = document.createElement('span');
-      anInfoCardMessage.textContent = 'Select tree node to see element info.';
-      $('#info-card').html(anInfoCardMessage);
-
-      if (aCurrentModelNode) {
-        aJsTree.delete_node(aCurrentModelNode);
+  <script type="importmap">
+    {
+      "imports": {
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
       }
-
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
-
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-        let aDisplayMode = cadex.ModelPrs_DisplayMode.Shaded;
-        let aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
-        if (aLoadResult.hasBRepRep) {
-          aDisplayMode = cadex.ModelPrs_DisplayMode.ShadedWithBoundaries;
-          aRepMode = cadex.ModelData_RepresentationMask.ModelData_RM_BRep;
-        }
-        aScene.globalDisplayMode = aDisplayMode;
-
-        // Convert added model roots into visualization objects and display it
-        await cadex.ModelPrs_DisplayerApplier.apply(aLoadResult.roots, [], {
-          displayer: new cadex.ModelPrs_SceneDisplayer(aScene),
-          repSelector: new cadex.ModelData_RepresentationMaskSelector(aRepMode)
-        });
-
-        // Move camera to position when the whole model is in sight
-        aViewPort.fitAll();
-
-        // Create root file item
-        // eslint-disable-next-line require-atomic-updates
-        aCurrentModelNode = aJsTree.create_node(null, {
-          text: theModelName,
-          type: 'file',
-          data: {}
-        });
-
-        // Feed tree with model structure
-        const aVisitor = new SceneGraphToJsTreeConverter(aCurrentModelNode, modelUrl(theModelPath));
-        await aModel.accept(aVisitor);
-        aJsTree.open_all(null, 0);
-      }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
-      }
-
     }
+  </script>
+
+  <!-- Model Explorer sample code -->
+  <script type="module">
+
+    import { fetchFile, initModelSelector, modelUrl, updateSceneSmoothly } from '../assets/js/helpers.mjs';
+
+    import cadex from '@cadexchanger/web-toolkit';
+
+    /* global $ */
 
     // Use a visitor to feed jsTree
-    class SceneGraphToJsTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
-
-      constructor(theRootNode, theTextureBasePath) {
+    class SceneGraphToTreeConverter extends cadex.ModelData_SceneGraphElementVisitor {
+      /**
+       * @param {*} theJsTree
+       * @param {string} theRootNode
+       * @param {string} theTextureBasePath
+       */
+      constructor(theJsTree, theRootNode, theTextureBasePath) {
         super();
+        this.jstree = theJsTree;
         this.nodes = [theRootNode];
         this.textureBasePath = theTextureBasePath;
       }
@@ -218,7 +116,7 @@
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Part} thePart
+       * @param {cadex.ModelData_Part} thePart
        */
       visitPart(thePart) {
         const aTreeItem = {
@@ -229,11 +127,11 @@
             textureBasePath: this.textureBasePath
           }
         };
-        aJsTree.create_node(this.currentNode(), aTreeItem);
+        this.jstree.create_node(this.currentNode(), aTreeItem);
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Instance} theInstance
+       * @param {cadex.ModelData_Instance} theInstance
        */
       visitInstanceEnter(theInstance) {
         const aTreeItem = {
@@ -244,20 +142,20 @@
             textureBasePath: this.textureBasePath
           }
         };
-        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        const aNode = this.jstree.create_node(this.currentNode(), aTreeItem);
         this.nodes.push(aNode);
         return true;
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Instance} theInstance
+       * @param {cadex.ModelData_Instance} _theInstance
        */
-      visitInstanceLeave(/*theInstance*/) {
+      visitInstanceLeave(_theInstance) {
         this.nodes.pop();
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Assembly} theAssembly
+       * @param {cadex.ModelData_Assembly} theAssembly
        */
       visitAssemblyEnter(theAssembly) {
         const aTreeItem = {
@@ -268,22 +166,22 @@
             textureBasePath: this.textureBasePath
           }
         };
-        const aNode = aJsTree.create_node(this.currentNode(), aTreeItem);
+        const aNode = this.jstree.create_node(this.currentNode(), aTreeItem);
         this.nodes.push(aNode);
         return true;
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Assembly} theAssembly
+       * @param {cadex.ModelData_Assembly} _theAssembly
        */
-      visitAssemblyLeave(/*theAssembly*/) {
+      visitAssemblyLeave(_theAssembly) {
         this.nodes.pop();
       }
 
     }
 
     // Use a visitor to collect information about scenegraph element
-    class ElementVisitor extends cadex.ModelData_SceneGraphElementVisitor {
+    class SceneGraphElementFormatter extends cadex.ModelData_SceneGraphElementVisitor {
       /**
        * @param {string} theTextureBasePath
        */
@@ -293,7 +191,7 @@
         this.textureBasePath = theTextureBasePath;
       }
       /**
-       * @param {!cadex.ModelData_SceneGraphElement} theElement
+       * @param {cadex.ModelData_SceneGraphElement} theElement
        */
       async visitElement(theElement) {
         const generalInfo = formatKeyValue('Uuid', theElement.uuid) + formatKeyValue('Name', theElement.name);
@@ -309,7 +207,7 @@
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Part} thePart
+       * @param {cadex.ModelData_Part} thePart
        */
       async visitPart(thePart) {
         await this.visitElement(thePart);
@@ -319,20 +217,33 @@
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Instance} theInstance
+       * @param {cadex.ModelData_Instance} theInstance
        */
       async visitInstanceEnter(theInstance) {
         await this.visitElement(theInstance);
         this.info += formatKeyValue('Transformation', theInstance.transformation.toString().split(/\n/g).map(row => `<span>${row}</span><br>`).join(''));
+        return false;
       }
       /**
        * @override
-       * @param {!cadex.ModelData_Assembly} theAssembly
+       * @param {cadex.ModelData_Instance} _theInstance
+       */
+      visitInstanceLeave(_theInstance) {
+      }
+      /**
+       * @override
+       * @param {cadex.ModelData_Assembly} theAssembly
        */
       async visitAssemblyEnter(theAssembly) {
-        return this.visitElement(theAssembly);
+        this.visitElement(theAssembly);
+        return false;
       }
-
+      /**
+       * @override
+       * @param {cadex.ModelData_Assembly} _theAssembly
+       */
+      async visitAssemblyLeave(_theAssembly) {
+      }
     }
 
     function formatKeyValue(theKey, theValue) {
@@ -407,7 +318,8 @@
     }
 
     /**
-     * @param {!cadex.ModelData_Appearance} theAppearance
+     * @param {cadex.ModelData_Appearance|null} theAppearance
+     * @returns {Promise<string|null>}
      */
     async function formatAppearance(theAppearance, theTextureBasePath) {
       if (!theAppearance) {
@@ -445,8 +357,8 @@
       return aString;
     }
     /**
-     * @param {!cadex.ModelData_PropertyTable} thePropertyTable
-     * @returns {Promise<string>}
+     * @param {cadex.ModelData_PropertyTable|null} thePropertyTable
+     * @returns {Promise<string|null>}
      */
     async function formatPropertyTable(thePropertyTable) {
       if (!thePropertyTable) {
@@ -482,6 +394,10 @@
         const aBodyList = await theBRepRep.bodyList();
         for (let i = 0; i < aBodyList.size(); i++) {
           const aBody = aBodyList.element(i);
+          if (!aBody) {
+            aBodiesStr += formatKeyValue(`Body ${i + 1}`, null);
+            continue;
+          }
           const aBodyTypeStr = formatEnumValue(cadex.ModelData_BodyType, aBody.bodyType);
           if (this.exploreSubShapes) {
             let aSubShapeStr = '';
@@ -504,7 +420,7 @@
         const aShapeType = Object.keys(cadex.ModelData_ShapeType).find(theKey => cadex.ModelData_ShapeType[theKey] === theShape.type);
         let aShapeStr = '';
         if (theShape.type === cadex.ModelData_ShapeType.Vertex) {
-          aShapeStr += theShape.point;
+          aShapeStr += /** @type {cadex.ModelData_Vertex} */(theShape).point;
         } else {
           for (let aShape of theShape) {
             aShapeStr += this.visitShape(aShape);
@@ -526,26 +442,26 @@
           if (aPolyShape instanceof cadex.ModelData_IndexedTriangleSet) {
             let anITSStr = formatKeyValue('Uuid', aPolyShape.uuid);
             anITSStr += formatKeyValue('Name', aPolyShape.name);
-            anITSStr += formatKeyValue('Triangles', aPolyShape.numberOfFaces());
-            anITSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
-            anITSStr += formatKeyValue('Normals', aPolyShape.hasNormals() ? `[${aPolyShape.numberOfNormals()} items]` : null);
-            anITSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
-            anITSStr += formatKeyValue('UVCoordinates', aPolyShape.hasUVCoordinates() ? `[${aPolyShape.numberOfUVCoordinates()} items]` : null);
+            anITSStr += formatKeyValue('Triangles', aPolyShape.numberOfFaces);
+            anITSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices} items]`);
+            anITSStr += formatKeyValue('Normals', aPolyShape.hasNormals() ? `[${aPolyShape.numberOfNormals} items]` : null);
+            anITSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors} items]` : null);
+            anITSStr += formatKeyValue('UVCoordinates', aPolyShape.hasUVCoordinates() ? `[${aPolyShape.numberOfUVCoordinates} items]` : null);
             anITSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
             this.str += formatKeyValue(`Triangle Set ${i + 1}`, anITSStr);
           } else if (aPolyShape instanceof cadex.ModelData_PolyLineSet) {
             let aPLSStr = formatKeyValue('Uuid', aPolyShape.uuid);
             aPLSStr += formatKeyValue('Name', aPolyShape.name);
-            aPLSStr += formatKeyValue('Polylines', aPolyShape.numberOfPolylines());
-            aPLSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
-            aPLSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
+            aPLSStr += formatKeyValue('Polylines', aPolyShape.numberOfPolylines);
+            aPLSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices} items]`);
+            aPLSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors} items]` : null);
             aPLSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
             this.str += formatKeyValue(`Polyline Set ${i + 1}`, aPLSStr);
           } else if (aPolyShape instanceof cadex.ModelData_PolyPointSet) {
             let aPPSStr = formatKeyValue('Uuid', aPolyShape.uuid);
             aPPSStr += formatKeyValue('Name', aPolyShape.name);
-            aPPSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices()} items]`);
-            aPPSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors()} items]` : null);
+            aPPSStr += formatKeyValue('Vertices', `[${aPolyShape.numberOfVertices} items]`);
+            aPPSStr += formatKeyValue('Colors', aPolyShape.hasColors() ? `[${aPolyShape.numberOfColors} items]` : null);
             aPPSStr += formatKeyValue('Appearance', await formatAppearance(aPolyShape.appearance, this.textureBasePath));
             this.str += formatKeyValue(`Point Set ${i + 1}`, aPPSStr);
           }
@@ -565,48 +481,188 @@
       visitPolyOutline(theOutline) {
         this.str += formatKeyValue('Type', 'PolyOutline');
         let aPolyLinesStr = '';
-        for (let i = 0, n = theOutline.lineSet.numberOfPolylines(); i < n; i++) {
+        if (!theOutline.lineSet) {
+          this.str += formatKeyValue('LineSet', null);
+          return;
+        }
+        for (let i = 0, n = theOutline.lineSet.numberOfPolylines; i < n; i++) {
           aPolyLinesStr += formatKeyValue('Line ' + (i + 1), theOutline.lineSet.numberOfLineVertices(i) + ' vertices');
         }
         this.str += formatKeyValue('LineSet', aPolyLinesStr);
       }
       /**
-       * @param {cadex.ModelData_PMIPoly2dOutline} theOutline
+       * @override
+       * @param {cadex.ModelData_PMIPoly2dOutline} _theOutline
        */
-      visitPoly2dOutline(/*theOutline*/) {
+      visitPoly2dOutline(_theOutline) {
         this.str += formatKeyValue('Type', 'Poly2dOutline');
       }
       /**
-       * @param {cadex.ModelData_PMICurveOutline} theOutline
+       * @override
+       * @param {cadex.ModelData_PMICurveOutline} _theOutline
        */
-      visitCurveOutline(/*theOutline*/) {
+      visitCurveOutline(_theOutline) {
         this.str += formatKeyValue('Type', 'CurveOutline');
       }
       /**
-       * @param {cadex.ModelData_PMICurve2dOutline} theOutline
+       * @override
+       * @param {cadex.ModelData_PMICurve2dOutline} _theOutline
        */
-      visitCurve2dOutline(/*theOutline*/) {
+      visitCurve2dOutline(_theOutline) {
         this.str += formatKeyValue('Type', 'Curve2dOutline');
       }
       /**
+       * @override
        * @param {cadex.ModelData_PMICompositeOutline} theOutline
        * @returns {boolean}
        */
       visitCompositeOutlineEnter(theOutline) {
         this.str += formatKeyValue('Type', 'CompositeOutline');
-        this.str += formatKeyValue('Outlines', theOutline.outlines.map(formatPMIOutline).join(''));
+        let anOutlinesStr = '';
+        for (const anOutline of theOutline.outlines()) {
+          anOutlinesStr += formatPMIOutline(anOutline);
+        }
+        this.str += formatKeyValue('Outlines', anOutlinesStr);
+        return true;
+      }
+      /**
+       * @override
+       * @param {cadex.ModelData_PMICompositeOutline} _theOutline
+       */
+      visitCompositeOutlineLeave(_theOutline) {
+      }
+    }
+
+    // Use a visitor to iterate over PMI attributes.
+    class PMISemanticAttributeFormatter extends cadex.ModelData_PMISemanticAttributeVisitor {
+      constructor() {
+        super();
+        this.str = '';
+      }
+      /**
+       * @param {cadex.ModelData_PMIAngleUnitAttribute} theAttribute
+       */
+      visitAngleUnitAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'AngleUnit');
+        this.str += formatKeyValue('Unit', `${theAttribute.unit}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIDatumRefAttribute} theAttribute
+       */
+      visitDatumRefAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'DatumRef');
+        this.str += formatKeyValue('Precedence', `${theAttribute.precedence}`);
+        this.str += formatKeyValue('Target label', `${theAttribute.targetLabel}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIDatumRefCompartmentAttribute} theAttribute
+       */
+      visitDatumRefCompartmentAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'DatumRefCompartment');
+        this.str += formatKeyValue('References', `${theAttribute.references}`);
+        this.str += formatKeyValue('Number of references', `${theAttribute.numberOfReferences}`);
+        this.str += formatKeyValue('Modifier attributes', `${theAttribute.modifierAttributes}`);
+        this.str += formatKeyValue('Number of modifier attributes', `${theAttribute.numberOfModifierAttributes}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIDatumTargetAttribute} theAttribute
+       */
+      visitDatumTargetAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'DatumTarget');
+        this.str += formatKeyValue('Index', `${theAttribute.index}`);
+        this.str += formatKeyValue('Description', `${theAttribute.description}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIDisplacementAttribute} theAttribute
+       */
+      visitDisplacementAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Displacement');
+        this.str += formatKeyValue('Displacement', `${theAttribute.displacement}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMILengthUnitAttribute} theAttribute
+       */
+      visitLengthUnitAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'LengthUnit');
+        this.str += formatKeyValue('Unit', `${theAttribute.unit}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMILimitsAndFitsAttribute} theAttribute
+       */
+      visitLimitsAndFitsAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'LimitsAndFits');
+        this.str += formatKeyValue('Limits and fits type', `${theAttribute.type}`);
+        this.str += formatKeyValue('Value', `${theAttribute.value}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIMaximumValueAttribute} theAttribute
+       */
+      visitMaximumValueAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Maximum value');
+        this.str += formatKeyValue('Max value', `${theAttribute.maxValue}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIModifierAttribute} theAttribute
+       */
+      visitModifierAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Modifier');
+        this.str += formatKeyValue('Modifier', `${theAttribute.modifier}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIModifierWithValueAttribute} theAttribute
+       */
+      visitModifierWithValueAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Modifier with value');
+        this.str += formatKeyValue('Modifier', `${theAttribute.modifier}`);
+        this.str += formatKeyValue('Value', `${theAttribute.value}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIPlusMinusBoundsAttribute} theAttribute
+       */
+      visitPlusMinusBoundsAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'PlusMinusBounds');
+        this.str += formatKeyValue('UpperBound', `${theAttribute.upperBound}`);
+        this.str += formatKeyValue('LowerBound', `${theAttribute.lowerBound}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIQualifierAttribute} theAttribute
+       */
+      visitQualifierAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Qualifier');
+        this.str += formatKeyValue('Qualifier', `${theAttribute.qualifier}`);
+      }
+      /**
+       * @param {cadex.ModelData_PMIRangeAttribute} theAttribute
+       */
+      visitRangeAttribute(theAttribute) {
+        this.str += formatKeyValue('Type', 'Range');
+        this.str += formatKeyValue('UpperLimit', `${theAttribute.upperLimit}`);
+        this.str += formatKeyValue('LowerLimit', `${theAttribute.lowerLimit}`);
       }
     }
 
     /**
      * @param {cadex.ModelData_PMIOutline} theOutline
      */
-    async function formatPMIOutline(theOutline) {
+    function formatPMIOutline(theOutline) {
       if (!theOutline) {
         return null;
       }
       const aVisitor = new PMIOutlineFormatter();
-      await theOutline.accept(aVisitor);
+      theOutline.accept(aVisitor);
+      return aVisitor.str;
+    }
+
+    /**
+     * @param {cadex.ModelData_PMISemanticAttribute} theAttribute
+     * @returns {string | null}
+     */
+    function formatPMISemanticAttribute(theAttribute) {
+      if (!theAttribute) {
+        return null;
+      }
+      const aVisitor = new PMISemanticAttributeFormatter();
+      theAttribute.accept(aVisitor);
       return aVisitor.str;
     }
 
@@ -617,28 +673,85 @@
         this.str = '';
       }
       /**
+       * @override
        * @param {cadex.ModelData_PMIOutlinedComponent} theComponent
        */
-      async visitOutlinedComponent(theComponent) {
+      visitOutlinedComponent(theComponent) {
         this.str += formatKeyValue('Type', 'Outlined');
-        this.str += formatKeyValue('Outline', await formatPMIOutline(theComponent.outline));
+        this.str += formatKeyValue('Outline', theComponent.outline ? formatPMIOutline(theComponent.outline) : null);
       }
       /**
+       * @override
        * @param {cadex.ModelData_PMITextComponent} theComponent
        */
-      async visitTextComponent(theComponent) {
+      visitTextComponent(theComponent) {
         this.str += formatKeyValue('Type', 'Text');
         this.str += formatKeyValue('Text', `"${theComponent.text}"`);
         this.str += formatKeyValue('Font Size', theComponent.fontSize);
         this.str += formatKeyValue('Text Origin', theComponent.textOrigin);
-        this.str += formatKeyValue('Outline', await formatPMIOutline(theComponent.outline));
+        this.str += formatKeyValue('Outline', theComponent.outline ? formatPMIOutline(theComponent.outline) : null);
       }
       /**
+       * @override
        * @param {cadex.ModelData_PMITriangulatedComponent} theComponent
        */
       visitTriangulatedComponent(theComponent) {
         this.str += formatKeyValue('Type', 'Triangulated');
-        this.str += formatKeyValue('Triangle Set', theComponent.triangleSet ? `{${theComponent.triangleSet.numberOfFaces()} triangles}` : null);
+        this.str += formatKeyValue('Triangle Set', theComponent.triangleSet ? `{${theComponent.triangleSet.numberOfFaces} triangles}` : null);
+      }
+    }
+
+    // Use a visitor to iterate over Semantic PMI components
+    class PMISemanticComponentFormatter extends cadex.ModelData_PMISemanticElementComponentVisitor {
+      constructor() {
+        super();
+        this.str = '';
+      }
+      /**
+       * @param {cadex.ModelData_PMIDatumComponent} theComponent
+       */
+      visitDatumComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Datum');
+        this.str += formatKeyValue('Label', `${theComponent.label}`);
+        if (theComponent.attributes.length > 0) {
+          let attributes = '';
+          for (let i = 0; i < theComponent.attributes.length; ++i) {
+            attributes += `<i>Attribute ${i + 1}</i>` + formatPMISemanticAttribute(theComponent.attributes[i]);
+          }
+          this.str += formatKeyValue('Attributes', attributes);
+        }
+      }
+      /**
+       * @param {cadex.ModelData_PMIDimensionComponent} theComponent
+       */
+      visitDimensionComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Dimension');
+        this.str += formatKeyValue('Nominal value', `${theComponent.nominalValue}`);
+        const aTypeOfDimension = Object.entries(cadex.ModelData_PMIDimensionType).find((entry) => entry[1] === theComponent.typeOfDimension)?.[0] ?? 'Undefined';
+        this.str += formatKeyValue('Type of dimension', `${aTypeOfDimension}`);
+        if (theComponent.attributes.length > 0) {
+          let attributes = '';
+          for (let i = 0; i < theComponent.attributes.length; ++i) {
+            attributes += `<i>Attribute ${i + 1}</i>` + formatPMISemanticAttribute(theComponent.attributes[i]);
+          }
+          this.str += formatKeyValue('Attributes', attributes);
+        }
+      }
+      /**
+       * @param {cadex.ModelData_PMIGeometricToleranceComponent} theComponent
+       */
+      visitGeometricToleranceComponent(theComponent) {
+        this.str += formatKeyValue('Type', 'Geometric tolerance');
+        this.str += formatKeyValue('Magnitude', `${theComponent.magnitude}`);
+        const aTypeOfToleranceZoneForm = Object.entries(cadex.ModelData_PMIGeometricToleranceZoneFormType).find((entry) => entry[1] === theComponent.toleranceZoneForm)?.[0] ?? 'Undefined';
+        this.str += formatKeyValue('Tolerance zone form type', `${aTypeOfToleranceZoneForm}`);
+        if (theComponent.attributes.length > 0) {
+          let attributes = '';
+          for (let i = 0; i < theComponent.attributes.length; ++i) {
+            attributes += `<i>Attribute ${i + 1}</i>` + formatPMISemanticAttribute(theComponent.attributes[i]);
+          }
+          this.str += formatKeyValue('Attributes', attributes);
+        }
       }
     }
 
@@ -646,25 +759,35 @@
      * @param {cadex.ModelData_PMIGraphicalElementComponent} theComponent
      * @returns {string}
      */
-    async function formatPMIComponent(theComponent) {
+    function formatPMIComponent(theComponent) {
       const aVisitor = new PMIComponentFormatter();
-      await theComponent.accept(aVisitor);
+      theComponent.accept(aVisitor);
+      return aVisitor.str;
+    }
+
+    /**
+     * @param {cadex.ModelData_PMISemanticElementComponent} theComponent
+     * @returns {string}
+     */
+    function formatPMISemanticComponent(theComponent) {
+      const aVisitor = new PMISemanticComponentFormatter();
+      theComponent.accept(aVisitor);
       return aVisitor.str;
     }
 
     /**
      * @param {cadex.ModelData_PMIGraphicalElement} theElement
      * @param {Array<cadex.ModelData_PMIPlane>} thePlanes
-     * @returns {string}
+     * @returns {string|null}
      */
-    async function formatPMIGraphicalElement(theElement, thePlanes) {
+    function formatPMIGraphicalElement(theElement, thePlanes) {
       if (!theElement) {
         return null;
       }
       let aPMIGraphicalElementStr = formatKeyValue('Name', theElement.name);
       let aComponentsStr = '';
       for (let j = 0, k = theElement.components.length; j < k; ++j) {
-        aComponentsStr += `<i>Component ${j + 1}</i>` + await formatPMIComponent(theElement.components[j]);
+        aComponentsStr += `<i>Component ${j + 1}</i>` + formatPMIComponent(theElement.components[j]);
       }
       aPMIGraphicalElementStr += formatKeyValue('Components', aComponentsStr);
       aPMIGraphicalElementStr += formatKeyValue('Plane', theElement.plane ? (`ref {Plane ${thePlanes.indexOf(theElement.plane) + 1}}`) : null);
@@ -673,7 +796,25 @@
     }
 
     /**
-     * @param {cadex.ModelData_PMICamera} theCamera
+     * @param {cadex.ModelData_PMISemanticElement} theElement
+     * @returns {string}
+     */
+    function formatPMISemanticElement(theElement) {
+      if (!theElement) {
+        return '';
+      }
+      let aPMISemanticElementStr = formatKeyValue('Name', theElement.name);
+      let aComponentsStr = '';
+      for (let j = 0, k = theElement.components.length; j < k; ++j) {
+        aComponentsStr += `<i>Component ${j + 1}</i>` + formatPMISemanticComponent(theElement.components[j]);
+      }
+      aPMISemanticElementStr += formatKeyValue('Components', aComponentsStr);
+
+      return aPMISemanticElementStr;
+    }
+
+    /**
+     * @param {cadex.ModelData_PMICamera|null} theCamera
      * @returns {string}
      */
     function formatPMICamera(theCamera) {
@@ -689,8 +830,8 @@
     }
 
     /**
-    * @param {!cadex.ModelData_PMITable} thePMITable
-    * @returns {Promise<string>}
+    * @param {cadex.ModelData_PMITable|null} thePMITable
+    * @returns {Promise<string|null>}
     */
     async function formatPMITable(thePMITable) {
       if (!thePMITable) {
@@ -711,8 +852,20 @@
         aDataItemStr += formatKeyValue('Type', Object.keys(cadex.ModelData_PMIType).find(key => `${cadex.ModelData_PMIType[key]}` === `${aDataItem.type}`));
         const aPropsText = await formatPropertyTable(aDataItem.properties);
         aDataItemStr += formatKeyValue('Properties', aPropsText);
-        const aGraphicalElementText = await formatPMIGraphicalElement(aDataItem.graphicalElement, aPlanes);
-        aDataItemStr += formatKeyValue('Graphical Element', aGraphicalElementText);
+        const aGraphicalElement = aDataItem.graphicalElement;
+        if (aGraphicalElement) {
+          const aGraphicalElementText = formatPMIGraphicalElement(aGraphicalElement, aPlanes);
+          aDataItemStr += formatKeyValue('Graphical Element', aGraphicalElementText);
+        } else {
+          aDataItemStr += formatKeyValue('Graphical Element', null);
+        }
+        const aSemanticElement = aDataItem.semanticElement;
+        if (aSemanticElement) {
+          const aSemanticElementText = formatPMISemanticElement(aSemanticElement);
+          aDataItemStr += formatKeyValue('Semantic Element', aSemanticElementText);
+        } else {
+          aDataItemStr += formatKeyValue('Semantic Element', null);
+        }
       }
       aString += formatKeyValue('PMI Data', aDataItemStr);
 
@@ -723,7 +876,11 @@
         aViewsStr += formatKeyValue('Uuid', aSavedView.uuid);
         aViewsStr += formatKeyValue('Name', aSavedView.name);
         aViewsStr += formatPMICamera(aSavedView.camera);
-        aViewsStr += formatKeyValue('Elements', aSavedView.elements.map(theElement => `{Graphical Element ${aDataItems.indexOf(theElement) + 1}}`));
+        let anElements = '';
+        for (const theElement of aSavedView.graphicalElements()) {
+          anElements += `{Graphical Element of PMI Data Item ${aDataItems.findIndex((theData) => theData.graphicalElement === theElement) + 1}}`;
+        }
+        aViewsStr += formatKeyValue('Elements', anElements);
       }
       aString += formatKeyValue('Saved Views', aViewsStr);
 
@@ -733,14 +890,140 @@
         const aPMIPlane = aPlanes[i];
         aPlanesStr += formatKeyValue('Name', aPMIPlane.name);
         aPlanesStr += formatKeyValue('Uuid', aPMIPlane.uuid);
-        aPlanesStr += formatKeyValue('Location', aPMIPlane.plane.location);
-        aPlanesStr += formatKeyValue('Direction', aPMIPlane.plane.direction);
+        aPlanesStr += formatKeyValue('Location', aPMIPlane.plane ? aPMIPlane.plane.location : null);
+        aPlanesStr += formatKeyValue('Direction', aPMIPlane.plane ? aPMIPlane.plane.direction : null);
       }
       aString += formatKeyValue('Planes', aPlanesStr);
 
-
       return aString;
     }
+
+    class ModelExplorerExample {
+      constructor() {
+        // The model
+        this.model = new cadex.ModelData_Model();
+        // The scene for visualization
+        this.scene = new cadex.ModelPrs_Scene();
+
+        // The viewport for visualization. Initializing with default config and element attach to.
+        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
+        // Attach viewport to scene to render content of
+        this.viewport.attachToScene(this.scene);
+
+        const aJSTreeConfig = {
+          core: {
+            multiple: false,
+            check_callback: true,
+            themes: {
+              'name': null, //'default',
+              'dots': true,
+            }
+          },
+          'types': {
+            'file': {
+              'icon': 'icon-file'
+            },
+            'assembly': {
+              'icon': 'icon-assembly'
+            },
+            'instance': {
+              'icon': 'icon-instance'
+            },
+            'part': {
+              'icon': 'icon-part'
+            }
+          },
+          'plugins': ['wholerow', 'types']
+        };
+
+        // Initialize jsTree library used for visualizing scenegraph structure (see https://www.jstree.com/)
+        $('#tree-container').jstree(aJSTreeConfig)
+          .on('select_node.jstree', async (_theEvent, theData) => {
+            if (theData.node.data && theData.node.data.sge) {
+              const aVisitor = new SceneGraphElementFormatter(theData.node.data.textureBasePath);
+              await theData.node.data.sge.accept(aVisitor);
+              $('#info-card').html(aVisitor.info);
+            } else {
+              const anInfoCardMessage = document.createElement('span');
+              anInfoCardMessage.textContent = 'No information available.';
+              $('#info-card').html(anInfoCardMessage);
+            }
+          });
+
+        this.sceneGraphTree = $('#tree-container').jstree(true);
+
+        this.currentModelNode = null;
+      }
+
+      /**
+       * @param {string} theModelPath
+       * @param {string} theModelName
+       */
+      async loadAndTraverseModel(theModelPath, theModelName) {
+        try {
+          // Clean up scene to display new model
+          this.scene.clear();
+          await this.scene.update();
+
+          const anInfoCardMessage = document.createElement('span');
+          anInfoCardMessage.textContent = 'Select tree node to see element info.';
+          $('#info-card').html(anInfoCardMessage);
+
+          if (this.currentModelNode) {
+            this.sceneGraphTree.delete_node(this.currentModelNode);
+          }
+
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          // Create root file item
+          // eslint-disable-next-line require-atomic-updates
+          this.currentModelNode = this.sceneGraphTree.create_node(null, {
+            text: theModelName,
+            type: 'file',
+            data: {}
+          });
+
+          // Feed tree with model structure
+          const aVisitor = new SceneGraphToTreeConverter(this.sceneGraphTree, this.currentModelNode, modelUrl(theModelPath));
+          await this.model.accept(aVisitor);
+          this.sceneGraphTree.open_all(null, 0);
+
+          // Create visualization graph for model.
+          const aSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
+
+          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
+          const aSceneNode = await aSceneNodeFactory.createGraphFromModel(this.model, aRepMask);
+          if (!aSceneNode) {
+            throw new Error('Unable to create scene node from model.');
+          }
+          aSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
+
+          this.scene.addRoot(aSceneNode);
+
+          // Update scene to apply changes.
+          await updateSceneSmoothly(this.scene, this.viewport);
+
+          // Finally move camera to position when the whole model is in sight
+          this.viewport.fitAll();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
+        }
+      }
+    }
+
+    const aModelExplorerExample = new ModelExplorerExample();
+
+    initModelSelector('as1-oc-214.stp', aModelExplorerExample.loadAndTraverseModel.bind(aModelExplorerExample));
 
   </script>
 

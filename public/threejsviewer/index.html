@@ -35,174 +35,473 @@
 <html lang="en">
 
 <head>
+
+  <meta charset="utf-8">
+  <meta name="description" content="Visualize CAD models with Three.js">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
   <title>CAD Exchanger - Visualize CAD models with Three.js</title>
 
-  <meta name="description" content="Visualize CAD models with Three.js">
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  
+  <link rel="icon" type="image/png" sizes="16x16" href="https://cadexchanger.com/assets/images/icon16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="https://cadexchanger.com/assets/images/icon32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="https://cadexchanger.com/assets/images/icon96.png">
+
   <link rel="stylesheet" href="/assets/css/example.css">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/images/icon16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/icon32.png">
-  <link rel="icon" type="image/png" sizes="96x96" href="/assets/images/icon96.png">
 </head>
 
 <body>
-  
+
   <div id="example-container">
     <div id="file-viewer"></div>
-    <div id="model-selector">
-      <div>Select model:</div>
-      <select></select>
-    </div>
   </div>
 
-  <!-- Dependencies of the CAD Exchanger Web Toolkit -->
-  <!-- Lightweight es6 Promise polyfill (https://github.com/taylorhakes/promise-polyfill) -->
-  <script src="https://cdn.jsdelivr.net/npm/promise-polyfill/dist/polyfill.min.js"></script>
-  <!-- 3D library (https://github.com/mrdoob/three.js/) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/build/three.min.js"></script>
-  <!-- Helper threejs libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/controls/OrbitControls.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/WebGL.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.105.0/examples/js/libs/stats.min.js"></script>
-  <!-- CadEx core library -->
-  <script src="/assets/web-toolkit/cadex.core.bundle.js"></script>
-  <!-- CadEx three.js helper library -->
-  <script src="/assets/web-toolkit/cadex.three.min.js"></script>
+  <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
-  <!-- CadEx examples helper functions -->
-  <script src="/assets/js/helpers.js"></script>
-  
-  <!-- CadEx Viewer sample code -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three/": "/node_modules/three/",
+        "pako": "../../node_modules/pako/dist/pako.esm.mjs",
+        "three": "../../node_modules/three/build/three.module.js",
+        "@cadexchanger/web-toolkit": "../../node_modules/@cadexchanger/web-toolkit/build/cadex.min.mjs"
+      }
+    }
+  </script>
+
+  <!-- Three.js Viewer sample code -->
   <script type="module">
-    
-    /* global cadex, WEBGL, THREE, Stats, initModelSelector, modelUrl, fetchFile */
+
+    import { fetchFile, initModelSelector, modelUrl } from '../assets/js/helpers.mjs';
+    import cadex from '@cadexchanger/web-toolkit';
+
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    import Stats from 'three/examples/jsm/libs/stats.module.js';
+    import WEBGL from 'three/examples/jsm/capabilities/WebGL.js';
+
 
     // Initialize threejs scene (see also https://threejs.org/examples/?q=phon#webgl_materials_variations_phong)
     if (WEBGL.isWebGLAvailable() === false) {
       document.body.appendChild(WEBGL.getWebGLErrorMessage());
     }
 
-    let aLastRenderRequestId = undefined;
 
-    const aScene = new THREE.Scene();
-    // Element to store sub-tree of objects associated with loaded model
-    const aModelNode = new THREE.Object3D();
-    aScene.add(aModelNode);
+    class SceneGraphToTreejsConverter extends cadex.ModelData_SceneGraphElementVisitor {
+      /**
+       * @param {THREE.Object3D} theRootObject
+       * @param {cadex.ModelData_RepresentationMask|string} theRepSelector
+       * @param {cadex.ModelData_Appearance} [theDefaultAppearance]
+       */
+      constructor(theRootObject, theRepSelector, theDefaultAppearance = new cadex.ModelData_Appearance(new cadex.ModelData_ColorObject(0.5, 0.5, 0.5))) {
+        super();
+        /** @type {Array<THREE.Object3D>} */
+        this.objectStack = [theRootObject];
+        /** @type {Array<cadex.ModelData_Appearance>} */
+        this.appearancesStack = [theDefaultAppearance];
+        /** @type {Map<cadex.ModelData_PolyVertexSet, THREE.BufferGeometry>} */
+        this.geometryCache = new Map();
+        this.representationSelector = theRepSelector;
+      }
+      /**
+       * @returns {THREE.Object3D}
+       */
+      currentNode() {
+        return this.objectStack[this.objectStack.length - 1];
+      }
 
-    // Setup lights sources
-    aScene.add(new THREE.AmbientLight(0x222222));
+      /**
+       * @returns {cadex.ModelData_Appearance}
+       */
+      currentAppearance() {
+        return this.appearancesStack[this.appearancesStack.length - 1];
+      }
+      /**
+       * @override
+       * @param {cadex.ModelData_Part} thePart
+       */
+      async visitPart(thePart) {
+        const aRep = thePart.representation(this.representationSelector);
+        if (aRep) {
+          let anApp = this.currentAppearance();
+          if (thePart.appearance) {
+            anApp = anApp.clone().combineWith(thePart.appearance);
+          }
+          const aConverter = new RepresentationToTreejsConverter(anApp, this.geometryCache);
+          await aRep.accept(aConverter);
+          if (aConverter.result) {
+            this.currentNode().add(aConverter.result);
+          }
+        }
+      }
 
-    let aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
-    aDirectionalLight.position.set(1, 1, 0).normalize();
-    aScene.add(aDirectionalLight);
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceEnter(theInstance) {
+        const anInstanceNode = new THREE.Group();
+        const aTransformation = new THREE.Matrix4().fromArray(theInstance.transformation.elements);
+        anInstanceNode.applyMatrix4(aTransformation);
+        this.currentNode().add(anInstanceNode);
+        this.objectStack.push(anInstanceNode);
+        const anApp = theInstance.appearance;
+        if (anApp) {
+          this.appearancesStack.push(this.currentAppearance().copyAndCombineWith(anApp));
+        }
+        return true;
+      }
 
-    aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
-    aDirectionalLight.position.set(-1, 1, 0).normalize();
-    aScene.add(aDirectionalLight);
+      /**
+       * @override
+       * @param {!cadex.ModelData_Instance} theInstance
+       */
+      visitInstanceLeave(theInstance) {
+        this.objectStack.pop();
+        if (theInstance.appearance) {
+          this.appearancesStack.pop();
+        }
+      }
 
-    aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
-    aDirectionalLight.position.set(0, -1, 0).normalize();
-    aScene.add(aDirectionalLight);
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} _theAssembly
+       */
 
-    // Set up WebGL context
-    const aRenderer = new THREE.WebGLRenderer({ antialias: true });
-    aRenderer.setPixelRatio(window.devicePixelRatio);
-    aRenderer.setSize(window.innerWidth, window.innerHeight);
-    aRenderer.setClearColor(new THREE.Color('white'));
+      visitAssemblyEnter(_theAssembly) {
+        return true;
+      }
 
-    const aContainer = document.getElementById('file-viewer');
-    aContainer.appendChild(aRenderer.domElement);
+      /**
+       * @override
+       * @param {!cadex.ModelData_Assembly} _theAssembly
+       */
+      visitAssemblyLeave(_theAssembly) {
+      }
+    }
 
-    // Set up stats.js (https://github.com/mrdoob/stats.js/)
-    const aStats = new Stats();
-    aContainer.appendChild(aStats.dom);
-    aStats.dom.style.top = 'unset';
-    aStats.dom.style.bottom = '0px';
+    class RepresentationToTreejsConverter extends cadex.ModelData_RepresentationVisitor {
+      /**
+       * @param {cadex.ModelData_Appearance} thePartAppearance
+       * @param {Map<cadex.ModelData_PolyVertexSet, THREE.BufferGeometry|null>} theGeometryCache
+       */
+      constructor(thePartAppearance, theGeometryCache) {
+        super();
+        /** @type {THREE.Object3D|null} */
+        this.result = null;
+        this.partAppearance = thePartAppearance;
+        this.geometryCache = theGeometryCache;
+      }
 
-    // Set up camera and mouse controller
-    const aCamera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 2000000);
-    aCamera.position.set(-1000, 1200, 3000);
-    const aControls = new THREE.OrbitControls(aCamera, aRenderer.domElement);
-    aControls.target.set(600, 0, 300);
-    aControls.addEventListener('change', scheduleRender);
-    aControls.update();
+      /**
+       * Converts PVS to three.js object.
+       * @param {cadex.ModelData_PolyVertexSet|null|undefined} thePVS
+       * @param {boolean} [theClosed]
+       * @returns {THREE.Object3D|null}
+       */
+      convertPVS(thePVS, theClosed = false) {
+        if (!thePVS) {
+          return null;
+        }
+        let aGeometry;
+        if (this.geometryCache.has(thePVS)) {
+          aGeometry = this.geometryCache.get(thePVS);
+        } else {
+          aGeometry = createThreejsGeometry(thePVS);
+          this.geometryCache.set(thePVS, aGeometry);
+        }
+        if (!aGeometry) {
+          return null;
+        }
+        /** @type {Array<cadex.ModelData_Appearance>} */
+        let anAppearances;
 
-    window.addEventListener('resize', () => {
-      aCamera.aspect = window.innerWidth / window.innerHeight;
-      aCamera.updateProjectionMatrix();
-      aRenderer.setSize(window.innerWidth, window.innerHeight);
-    }, false);
+        /**
+         * @param {cadex.ModelData_Appearance|null|undefined} theApp
+         * @return {!cadex.ModelData_Appearance}
+         */
+        const combineAppearance = (theApp) => (theApp ? this.partAppearance.copyAndCombineWith(theApp) : this.partAppearance);
 
-    initModelSelector('Tisno.fbx', loadAndDisplayModel);
+        if (thePVS instanceof cadex.ModelData_MultiAppearanceIndexedTriangleSet
+          || thePVS instanceof cadex.ModelData_MultiAppearanceIndexedPolyLineSet
+          || thePVS instanceof cadex.ModelData_MultiAppearancePolyPointSet) {
+          anAppearances = thePVS.appearances.map(combineAppearance);
+        } else {
+          anAppearances = [combineAppearance(thePVS.appearance)];
+        }
 
-    async function loadAndDisplayModel(theModelPath) {
+        //create material and resulting presentation
+        if (thePVS instanceof cadex.ModelData_IndexedTriangleSet) {
+          const aMaterials = anAppearances.map((theApp) => {
+            const aMaterial = new THREE.MeshPhongMaterial();
+            if (!theClosed) {
+              aMaterial.side = THREE.DoubleSide;
+            }
+            if (theApp.material) {
+              setDiffuseColor(theApp.material.diffuseColor, aMaterial);
+              aMaterial.specular.setRGB(theApp.material.specularColor.r, theApp.material.specularColor.g, theApp.material.specularColor.b);
+              aMaterial.emissive.setRGB(theApp.material.emissiveColor.r, theApp.material.emissiveColor.g, theApp.material.emissiveColor.b);
+              aMaterial.shininess = theApp.material.shininess;
+            } else if (theApp.genericColor) {
+              setDiffuseColor(theApp.genericColor, aMaterial);
+            }
+            return aMaterial;
+          });
+          return new THREE.Mesh(aGeometry, aMaterials);
+        } else if (thePVS instanceof cadex.ModelData_PolyLineSet) {
+          const aMaterials = anAppearances.map((theApp) => {
+            const aMaterial = new THREE.LineBasicMaterial();
+            const aDiffuseColor = theApp.material?.diffuseColor || theApp.genericColor;
+            if (aDiffuseColor) {
+              setDiffuseColor(aDiffuseColor, aMaterial);
+            }
+            return aMaterial;
+          });
+          return new THREE.LineSegments(aGeometry, aMaterials);
+        } else if (thePVS instanceof cadex.ModelData_PolyPointSet) {
+          const aMaterials = anAppearances.map((theApp) => {
+            const aMaterial = new THREE.PointsMaterial();
+            const aDiffuseColor = theApp.material?.diffuseColor || theApp.genericColor;
+            if (aDiffuseColor) {
+              setDiffuseColor(aDiffuseColor, aMaterial);
+            }
+            return aMaterial;
+          });
+          return new THREE.Points(aGeometry, aMaterials);
+        }
+        return null;
+      }
 
-      // Remove previous model items
-      aModelNode.remove(...aModelNode.children);
 
-      try {
-        // Model uses multiple external data, so requires provider for it.
-        const dataLoader = async (theModelPath, theObjId) => fetchFile(modelUrl(theModelPath) + '/' + theObjId);
+      /**
+       * @override
+       * @param {cadex.ModelData_BRepRepresentation} theBRepRep
+       */
+      async visitBRepRepresentation(theBRepRep) {
+        const aBodyList = await theBRepRep.bodyList();
+        if (aBodyList.size() === 0) {
+          return;
+        }
+        this.result = new THREE.Group();
+        for (const aShape of aBodyList) {
+          const aBody = /** @type {cadex.ModelData_Body} */(aShape);
+          const aPVS = aBody?.prs?.faces || aBody?.prs?.edges || aBody?.prs?.vertexes;
+          const anObj = this.convertPVS(aPVS, aBody.bodyType === cadex.ModelData_BodyType.Solid);
+          if (anObj) {
+            this.result.add(anObj);
+          }
+        }
+      }
 
+      /**
+       * @override
+       * @param {cadex.ModelData_PolyRepresentation} thePolyRep
+       */
+      async visitPolyRepresentation(thePolyRep) {
+        const aPolyShapeList = await thePolyRep.polyShapeList();
+        if (aPolyShapeList.size() === 0) {
+          return;
+        }
+        this.result = new THREE.Group();
+        for (const aPVS of aPolyShapeList) {
+          const anObj = this.convertPVS(aPVS);
+          if (anObj) {
+            this.result.add(anObj);
+          }
+        }
+      }
+    }
+
+    /**
+     * Creates three.js buffer geometry from PVS.
+     * @param {cadex.ModelData_PolyVertexSet} thePVS
+     * @returns {THREE.BufferGeometry|null}
+     */
+    function createThreejsGeometry(thePVS) {
+      if (!thePVS.coords?.length) {
+        return null;
+      }
+      const aBufferGeometry = new THREE.BufferGeometry();
+      aBufferGeometry.setAttribute('position', new THREE.BufferAttribute(thePVS.coords, 3));
+      if (thePVS.colors) {
+        aBufferGeometry.setAttribute('color', new THREE.BufferAttribute(thePVS.colors, 3));
+      }
+      if (thePVS instanceof cadex.ModelData_IndexedTriangleSet) {
+        if (thePVS.indexes) {
+          aBufferGeometry.setIndex(new THREE.BufferAttribute(thePVS.indexes, 1));
+        }
+        if (thePVS.normals) {
+          aBufferGeometry.setAttribute('normal', new THREE.BufferAttribute(thePVS.normals, 3));
+        } else {
+          aBufferGeometry.computeVertexNormals();
+        }
+        if (thePVS.uvCoordinates) {
+          aBufferGeometry.setAttribute('uv', new THREE.BufferAttribute(thePVS.uvCoordinates, 2));
+        }
+      }
+      if (thePVS instanceof cadex.ModelData_IndexedPolyLineSet) {
+        if (thePVS.indexes) {
+          aBufferGeometry.setIndex(new THREE.BufferAttribute(thePVS.indexes, 1));
+        }
+      }
+
+      if (thePVS instanceof cadex.ModelData_MultiAppearanceIndexedTriangleSet
+        || thePVS instanceof cadex.ModelData_MultiAppearanceIndexedPolyLineSet
+        || thePVS instanceof cadex.ModelData_MultiAppearancePolyPointSet) {
+        const aNumberOfAppearances = thePVS.appearances.length;
+        thePVS.groups.forEach((theGroup) => {
+          const anAppearanceIndex = theGroup.appearanceIndex;
+          if (anAppearanceIndex >= 0 && anAppearanceIndex < aNumberOfAppearances) {
+            aBufferGeometry.addGroup(theGroup.start, theGroup.count, theGroup.appearanceIndex);
+          }
+        });
+      } else {
+        aBufferGeometry.addGroup(0, Infinity, 0);
+      }
+
+      return aBufferGeometry;
+    }
+
+    /**
+     * Applies diffuse color to material
+     * @param {cadex.ModelData_ColorObject} theColor
+     * @param {THREE.MeshPhongMaterial|THREE.LineBasicMaterial|THREE.PointsMaterial} theMaterial
+     */
+    function setDiffuseColor(theColor, theMaterial) {
+      theMaterial.color.setRGB(theColor.r, theColor.g, theColor.b);
+      theMaterial.opacity = theColor.a;
+      if (theColor.a < 1.0) {
+        theMaterial.transparent = true;
+      }
+    }
+
+    class ThreejsViewerExample {
+      constructor() {
         // Create model
-        const aModel = new cadex.ModelData_Model();
+        this.model = new cadex.ModelData_Model();
 
-        // Load model by URL.
-        const aLoadResult = await aModel.loadFile(theModelPath, dataLoader, false /*append roots*/);
-        console.log(`${theModelPath} is loaded\n`, aLoadResult);
+        // Create three.js scene
+        this.scene = new THREE.Scene();
+        // Element to store sub-tree of objects associated with loaded model
+        this.modelNode = new THREE.Object3D();
+        this.scene.add(this.modelNode);
 
-        // Convert ot three.js entities
-        const aConverterParameters = new cadex.ModelAlgo_ThreejsConverterParameters();
-        aConverterParameters.defaultAppearance = new cadex.ModelData_Appearance(new cadex.ModelData_ColorObject(0.5, 0.5, 0.5));
-        aConverterParameters.representationSelector = new cadex.ModelData_RepresentationMaskSelector(cadex.ModelData_RepresentationMask.ModelData_RM_Any);
-        const aThreejsConverter = new cadex.ModelAlgo_ThreejsConverter(aConverterParameters);
-        aModelNode.add(await aThreejsConverter.convertModel(aModel));
+        // Setup lights sources
+        this.scene.add(new THREE.AmbientLight(0x222222));
 
-        aCamera.position.set(-1000, 1000, 3000); // reset camera position
-        // Fit camera to scene
-        // For more details see https://discourse.threejs.org/t/camera-zoom-to-fit-object/936/3
-        const aSceneBBox = new THREE.Box3().setFromObject(aScene);
-        const aBBoxCenter = aSceneBBox.getCenter(new THREE.Vector3());
-        const size = aSceneBBox.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const fov = aCamera.fov * (Math.PI / 180);
-        let cameraZ = Math.abs(maxDim / 4 * Math.tan(fov * 2)) * 1.10;
-        aCamera.position.z = cameraZ;
+        let aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+        aDirectionalLight.position.set(1, 1, 0).normalize();
+        this.scene.add(aDirectionalLight);
 
-        const minZ = aSceneBBox.min.z;
-        const cameraToFarEdge = (minZ < 0) ? -minZ + cameraZ : cameraZ - minZ;
+        aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+        aDirectionalLight.position.set(-1, 1, 0).normalize();
+        this.scene.add(aDirectionalLight);
 
-        aCamera.far = cameraToFarEdge * 3;
-        aCamera.updateProjectionMatrix();
+        aDirectionalLight = new THREE.DirectionalLight(0xFFFFFF, 0.7);
+        aDirectionalLight.position.set(0, -1, 0).normalize();
+        this.scene.add(aDirectionalLight);
 
-        // set camera to rotate around center of loaded object
-        aControls.target = aBBoxCenter;
-        // prevent camera from zooming out far enough to create far plane cutoff
-        aControls.maxDistance = cameraToFarEdge * 2;
-        aControls.saveState();
-        aControls.update();
+        // Set up WebGL renderer
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setClearColor(new THREE.Color('white'));
+
+        // Set up camera
+        this.camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 2000000);
+        this.camera.position.set(-1000, 1000, 1000);
+
+        window.addEventListener('resize', () => {
+          this.camera.aspect = window.innerWidth / window.innerHeight;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(window.innerWidth, window.innerHeight);
+          this.scheduleRender();
+        }, false);
+
+        const aContainer = /** @type {HTMLElement} */(document.getElementById('file-viewer'));
+        aContainer.appendChild(this.renderer.domElement);
+
+        // Set up stats.js (https://github.com/mrdoob/stats.js/)
+        // eslint-disable-next-line new-cap
+        this.stats = Stats();
+        aContainer.appendChild(this.stats.dom);
+        this.stats.dom.style.top = 'unset';
+        this.stats.dom.style.bottom = '0px';
+
+        this.lastRenderRequestId = undefined;
+        this.render = this.render.bind(this);
+
+        // Set up camera and mouse controller
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.addEventListener('change', this.scheduleRender.bind(this));
+        this.controls.update();
       }
-      catch (theErr) {
-        console.log('Unable to load and display model: ', theErr);
-        alert(`Unable to load model "${theModelPath}" [${theErr.message}]`);
+
+      /**
+       * @param {string} theModelPath
+       */
+      async loadAndDisplayModel(theModelPath) {
+
+        // Remove previous model items
+        this.modelNode.remove(...this.modelNode.children);
+
+        try {
+          // Model uses multiple external files, so requires provider to fetch it.
+          /** @type {cadex.ModelData_CDXFBBufferProvider} */
+          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
+            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
+          };
+
+          // Load model by URL.
+          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/);
+          console.log(`${theModelPath} is loaded\n`, aLoadResult);
+
+          // Convert model ot three.js graph
+          const aThreejsConverter = new SceneGraphToTreejsConverter(this.modelNode, cadex.ModelData_RepresentationMask.ModelData_RM_Any);
+          await this.model.accept(aThreejsConverter);
+
+          console.log(this.modelNode.toJSON());
+
+          // Fit camera to scene
+          // For more details see https://discourse.threejs.org/t/camera-zoom-to-fit-object/936/3
+          const aSceneBBox = new THREE.Box3().setFromObject(this.scene);
+          const aBBoxCenter = aSceneBBox.getCenter(new THREE.Vector3());
+          const size = aSceneBBox.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const fov = this.camera.fov * (Math.PI / 180);
+          let cameraZ = Math.abs(maxDim / 4 * Math.tan(fov * 2)) * 1.10;
+
+          this.camera.position.sub(this.controls.target).setLength(cameraZ).add(aBBoxCenter);
+          this.camera.updateProjectionMatrix();
+
+          // set camera to rotate around center of loaded object
+          this.controls.target = aBBoxCenter;
+          this.controls.update();
+        }
+        catch (theErr) {
+          console.log('Unable to load and display model: ', theErr);
+          alert(`Unable to load model "${theModelPath}" [${/** @type {Error}*/(theErr).message}]`);
+        }
+      }
+
+      scheduleRender() {
+        if (this.lastRenderRequestId === undefined) {
+          this.lastRenderRequestId = requestAnimationFrame(this.render);
+        }
+      }
+
+      render() {
+        this.lastRenderRequestId = undefined;
+        this.stats.begin();
+        this.renderer.render(this.scene, this.camera);
+        this.stats.end();
       }
     }
 
-    function scheduleRender() {
-      if (aLastRenderRequestId === undefined) {
-        aLastRenderRequestId = requestAnimationFrame(render);
-      }
-    }
+    const aThreejsViewerExample = new ThreejsViewerExample();
 
-    function render() {
-      aLastRenderRequestId = undefined;
-      aStats.begin();
-      aRenderer.render(aScene, aCamera);
-      aStats.end();
-    }
+    initModelSelector('Tisno.fbx', aThreejsViewerExample.loadAndDisplayModel.bind(aThreejsViewerExample));
 
   </script>
 
