@@ -13,4 +13,4 @@
 *.pdf  binary
 
 # Don't convert cdxfb files
-public/assets/models/native/**/* binary
+public/assets/models/**/* binary

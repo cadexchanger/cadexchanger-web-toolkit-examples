@@ -29,6 +29,8 @@
 //
 // ****************************************************************************
 
+/* eslint-disable */
+
 /**
  * ### Scene graph tree state plugin
  * Fork of jstree.checkbox

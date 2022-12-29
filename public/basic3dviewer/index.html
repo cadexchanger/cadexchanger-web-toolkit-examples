@@ -57,7 +57,7 @@
   </div>
 
   <!-- ES Module Shims: Import maps polyfill for modules browsers without import maps support (all except Chrome 89+) -->
-  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.1/dist/es-module-shims.js" crossorigin="anonymous"></script>
+  <script async src="../../node_modules/es-module-shims/dist/es-module-shims.js" crossorigin="anonymous"></script>
 
   <script type="importmap">
     {
@@ -69,81 +69,9 @@
     }
   </script>
 
-  <!-- Basic 3D Viewer sample code -->
-  <script type="module">
+  <script type="module" src="basic3dviewer.mjs"></script>
 
-    import { fetchFile, initModelSelector, modelUrl, ProgressStatusManager, updateSceneSmoothly } from '../assets/js/helpers.mjs';
-    import cadex from '@cadexchanger/web-toolkit';
 
-    class Basic3DViewerExample {
-      constructor() {
-        // The model
-        this.model = new cadex.ModelData_Model();
-        // The scene for visualization
-        this.scene = new cadex.ModelPrs_Scene();
-
-        // The viewport for visualization. Initializing with default config and element attach to.
-        this.viewport = new cadex.ModelPrs_ViewPort({}, /** @type {HTMLElement} */(document.getElementById('file-viewer')));
-        // Attach viewport to scene to render content of
-        this.viewport.attachToScene(this.scene);
-
-        this.progressStatusManager = new ProgressStatusManager();
-      }
-
-      /**
-       * @param {string} theModelPath
-       */
-      async loadAndDisplayModel(theModelPath) {
-        try {
-          const aProgressStatus = this.progressStatusManager.init();
-
-          // Clean up scene to display new model
-          this.scene.clear();
-          const aSceneCleanScope = new cadex.Base_ProgressScope(aProgressStatus.rootScope, 1);
-          await this.scene.update(aSceneCleanScope);
-
-          // Model uses multiple external files, so requires provider to fetch it.
-          /** @type {cadex.ModelData_CDXFBBufferProvider} */
-          const dataLoader = (theModelPath, theObjId, theProgressScope) => {
-            return fetchFile(modelUrl(theModelPath) + '/' + theObjId, theProgressScope);
-          };
-
-          // Load model by URL.
-          const aLoadScenegraphProgressScope = new cadex.Base_ProgressScope(aProgressStatus.rootScope, 5);
-          const aLoadResult = await this.model.loadFile(theModelPath, dataLoader, false /*append roots*/, aLoadScenegraphProgressScope);
-          console.log(`${theModelPath} is loaded\n`, aLoadResult);
-
-          // Create visualization graph for model.
-          const aDisplayModelProgressScope = new cadex.Base_ProgressScope(aProgressStatus.rootScope);
-          const aSceneNodeFactory = new cadex.ModelPrs_SceneNodeFactory();
-
-          let aRepMask = aLoadResult.hasBRepRep ? cadex.ModelData_RepresentationMask.ModelData_RM_BRep : cadex.ModelData_RepresentationMask.ModelData_RM_Poly;
-          const aSceneNode = await aSceneNodeFactory.createGraphFromModel(this.model, aRepMask);
-          if (!aSceneNode) {
-            throw new Error('Unable to create scene node from model.');
-          }
-          aSceneNode.displayMode = aLoadResult.hasBRepRep ? cadex.ModelPrs_DisplayMode.ShadedWithBoundaries : cadex.ModelPrs_DisplayMode.Shaded;
-
-          this.scene.addRoot(aSceneNode);
-
-          // Update scene to apply changes.
-          await updateSceneSmoothly(this.scene, this.viewport, aDisplayModelProgressScope);
-
-          // Finally move camera to position when the whole model is in sight
-          this.viewport.fitAll();
-        }
-        catch (theErr) {
-          console.error('Unable to load and display model: ', theErr);
-          alert(`Unable to load model "${theModelPath}" [${/** @type {Error} */(theErr).message}]`);
-        }
-      }
-    }
-
-    const aBasic3DViewerExample = new Basic3DViewerExample();
-
-    initModelSelector('ASM Torsen Differential.stp', aBasic3DViewerExample.loadAndDisplayModel.bind(aBasic3DViewerExample));
-
-  </script>
 
 </body>
 
